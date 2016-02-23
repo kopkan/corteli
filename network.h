@@ -130,10 +130,14 @@ namespace Network{
 			Server(int port, U_LONG localAddr = 0);
 			void acceptCycle();
 			std::thread* acceptCycleT();
+			int send(int clId, char* buff, int len, int flags = 0);
+
+			List<Client*> clientList;
 
 		private:
 			Socket serverSocket;
-			std::thread* clientFunc(Client* cl);
+			
+			void clientFunc(Client* cl);
 		};
 	};
 
