@@ -471,7 +471,12 @@ namespace Corteli{
 				while (1){
 
 					Client *cl = new Client(serverSocket.accept());
-					clientFunc(cl);
+
+
+					std::thread* clientFuncThread;
+					clientFuncThread = new std::thread(&TCP::Server::clientFunc, this, cl);
+					clientFuncThread->detach();
+					//clientFunc(cl);
 				}
 			}
 
@@ -484,17 +489,28 @@ namespace Corteli{
 			}
 
 
-			std::thread* Server::clientFunc(Client* cl){
+			void Server::clientFunc(Client* cl){
 
 				cout << "new cl" << endl;
 
+				clientList.add(cl);
 
 				thread* clAcceptThread;
-				clAcceptThread = new thread(&TCP::Client::recvCycle, cl);
-				clAcceptThread->detach();
+				cl->recvCycle();
 
 
-				return clAcceptThread;
+				for (int i = clientList.getSize(); i >= 0; --i){
+
+					if (clientList.get(i) == cl){
+						clientList.remove(i);
+						break;
+					}
+				}
+			}
+
+			int Server::send(int clId, char* buff, int len, int flags){
+
+				clientList.get(clId)->send(buff, len, flags);
 			}
 		};
 
