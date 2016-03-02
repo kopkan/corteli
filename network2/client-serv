@@ -1,0 +1,352 @@
+#pragma once
+
+#include <corteli/corteli.h>
+using namespace Network;
+
+#include <iostream>
+#include <thread>
+using namespace std;
+
+class Client{
+
+public:
+	Client(int port = 0, U_LONG localAddr = 0);
+	Client::Client(TCP::ClientSocket *s);
+
+	bool connectCycle(U_LONG ip, int port, int limNoCon = -1, int timeLimit = -1, int sleepBetweenTry = 100);
+
+	void work(int buffSize = 10000, int limitTime = 10000);
+	void clientFunc(char* buff, int size);
+	int send(char* buff, int len=-1, int flags = 0);
+
+	std::thread* clientFuncT();
+
+
+	TCP::ClientSocket Client::getClientSocket();
+
+protected:
+	bool checkServer(int lastMesTime, int limitTime);
+	TCP::ClientSocket clientSocket;
+};
+
+
+///
+
+
+
+#include "client.h"
+
+
+Client::Client(int port, U_LONG localAddr){
+
+	clientSocket.bind(port, localAddr);
+}
+
+Client::Client(TCP::ClientSocket *s){
+
+	clientSocket = *s;
+}
+
+bool Client::connectCycle(U_LONG ip, int port, int limNoCon, int timeLimit, int sleepBetweenTry){
+
+	int startTime = clock();
+	int nowTime = startTime;
+
+	for (int i = limNoCon; i > 0 || i == -1; --i){
+
+		if (nowTime - startTime > timeLimit || timeLimit == -1){
+
+			if (clientSocket.connect(ip, port)){
+				return true;
+			}
+
+			clientSocket.refresh();
+			Sleep(sleepBetweenTry);
+		}
+
+	}
+	return false;
+}
+
+void Client::clientFunc(char* buff, int buffSize){
+
+	cout << "S->C"<<buff << endl;
+}
+
+bool Client::checkServer(int lastMesTime, int limitTime){
+
+	int nowTime = clock();
+
+	if (nowTime - lastMesTime > limitTime){
+		return false;
+	}
+
+	return true;
+}
+
+void Client::work(int buffSize, int limitTime){
+
+	char* buff = new char[buffSize];
+	int lastMesTime = clock();
+
+	DWORD dw = true;
+	ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+
+	while (true){
+
+		if (clientSocket.recv(buff, buffSize) != INVALID_SOCKET){
+
+			clientFunc(buff, buffSize);
+			lastMesTime = clock();
+		}
+		else{
+
+			if (WSAGetLastError() != WSAEWOULDBLOCK){
+				break;
+			}
+		}
+
+		if (checkServer(lastMesTime, limitTime) == false){
+			break;
+		}
+
+		Sleep(1);
+	}
+
+	dw = false;
+	ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+}
+
+
+/*
+std::thread* Client::clientFuncT(){
+
+	std::thread* clRecvThread;
+	clRecvThread = new std::thread(&Client::clientFunc, this);
+	clRecvThread->detach();
+	return clRecvThread;
+}
+*/
+
+int Client::send(char* buff, int len, int flags){
+
+	if (len == -1){
+		len = strlen(buff)+1;
+	}
+
+	return clientSocket.send(buff, len, flags);
+}
+
+
+TCP::ClientSocket Client::getClientSocket(){
+
+	return clientSocket;
+}
+
+
+
+
+
+///
+
+#include "client.h"
+
+
+
+//template <typename T, size_t N>
+//size_t ArraySize(const T(&)[N]) { return N; }
+
+
+void main(){
+
+	
+	Init();
+	Client* C=new Client;
+
+	while (1){
+		if (C->connectCycle(getInetAddr("127.0.0.1"), 8000)){
+
+			C->send("GET /wiki/HTTP HTTP/1.0\nHost: ru.wikipedia.org\n\n");
+			C->work(100, 1000);
+		}
+
+		//TCP::ClientSocket s; 
+		//s.refresh();
+
+		delete C;
+		C == new Client;
+	}
+
+
+	//C.send("GET /wiki/HTTP HTTP/1.0\nHost: ru.wikipedia.org\n\n");
+
+
+
+
+	system("pause");
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////
+
+
+
+
+
+
+
+
+
+
+
+class Server{
+
+public:
+	Server(int port, U_LONG localAddr = 0){
+
+		serverSocket.bind(port, localAddr);
+		serverSocket.listen();
+	}
+
+	~Server(){
+
+		clientList.removeAll();
+	}
+
+	void acceptCycle(){
+
+		while (1){
+
+			TCP::ClientSocket *cl = serverSocket.accept();
+			cout << cl;
+
+			std::thread* clientFuncThread;
+			clientFuncThread = new std::thread(&Server::newClient, this, cl);
+			clientFuncThread->detach();
+		}
+	}
+
+	std::thread* acceptCycleT(){
+
+		std::thread* acceptCycleThread;
+		acceptCycleThread = new std::thread(&Server::acceptCycle, this);
+		acceptCycleThread->detach();
+		return acceptCycleThread;
+	}
+
+	int send(int clId, char* buff, int len, int flags = 0);
+
+	void newClient(TCP::ClientSocket* cl){
+
+		cout << "new cl" << endl;
+
+		clientList.add(cl);
+
+
+		clientWork(*cl, 10000, 10000);
+
+		for (int i = clientList.getSize(); i >= 0; --i){
+
+			if (clientList.get(i) == cl){
+				clientList.remove(i);
+				break;
+			}
+		}
+	}
+
+
+	List<TCP::ClientSocket*> clientList;
+private:
+	TCP::ServerSocket serverSocket;
+
+	
+
+	void clientFunc(char* buff, int buffSize){
+
+		cout << "S->C" << buff << endl;
+	}
+
+	bool checkClient(int lastMesTime, int limitTime){
+
+		int nowTime = clock();
+
+		if (nowTime - lastMesTime > limitTime){
+			return false;
+		}
+
+		return true;
+	}
+
+	void clientWork(TCP::ClientSocket clientSocket, int buffSize, int limitTime){
+
+		char* buff = new char[buffSize];
+		int lastMesTime = clock();
+
+		DWORD dw = true;
+		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+
+		while (true){
+
+			if (clientSocket.recv(buff, buffSize) != INVALID_SOCKET){
+
+				clientFunc(buff, buffSize);
+				lastMesTime = clock();
+			}
+			else{
+
+				if (WSAGetLastError() != WSAEWOULDBLOCK){
+					break;
+				}
+			}
+
+			if (checkClient(lastMesTime, limitTime) == false){
+				break;
+			}
+
+			Sleep(1);
+		}
+
+		dw = false;
+		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+	}
+};
+
+
+
+void main(){
+
+	Init();
+	Server s(8000);
+	s.acceptCycleT();
+
+
+
+	//Sleep(10000);
+	//cout << s.clientList.getSize();
+
+
+	system("pause");
+
+
+}
