@@ -359,3 +359,40 @@ void main(){
 	system("pause");
 
 }
+
+
+////
+
+
+
+
+
+class qw{
+
+public:
+	qw operator<<(int a){
+	
+		cout << a;
+		
+		return *this;
+	};
+
+	qw operator<<(char* a){
+
+		cout << a;
+
+		return *this;
+	};
+
+};
+
+
+
+void main(){
+
+	
+	//qw t;
+
+	//char buff[] = "hell";
+	//t << buff << 1;
+	}
