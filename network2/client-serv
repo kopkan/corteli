@@ -1,3 +1,181 @@
+#include <corteli/corteli.h>
+using namespace Network;
+
+#include <iostream>
+#include <thread>
+using namespace std;
+
+
+class Server{
+
+public:
+	Server(int port, U_LONG localAddr = 0){
+
+		serverSocket.bind(port, localAddr);
+		serverSocket.listen();
+	}
+
+	~Server(){
+
+		clientList.removeAll();
+	}
+
+	void acceptCycle(int buffSize=10000, int limitTime=10000){
+
+		while (1){
+
+			TCP::ClientSocket *cl = serverSocket.accept();
+
+			std::thread* clientFuncThread;
+			clientFuncThread = new std::thread(&Server::newClient, this, cl, buffSize, limitTime);
+			clientFuncThread->detach();
+		}
+	}
+
+	std::thread* acceptCycleT(int buffSize=1000, int limitTime=10000){
+
+		std::thread* acceptCycleThread;
+		acceptCycleThread = new std::thread(&Server::acceptCycle, this, buffSize, limitTime);
+		acceptCycleThread->detach();
+		return acceptCycleThread;
+	}
+
+	int send(int clId, char* buff, int len, int flags = 0);
+
+	void newClient(TCP::ClientSocket* cl, int buffSize, int limitTime){
+
+		cout << "new cl" << endl;
+
+		clientList.add(cl);
+
+
+		clientWork(*cl, buffSize, limitTime);
+
+		for (int i = clientList.getSize(); i >= 0; --i){
+
+			if (clientList.get(i) == cl){
+				clientList.remove(i);
+				break;
+			}
+		}
+	}
+
+
+	List<TCP::ClientSocket*> clientList;
+private:
+	TCP::ServerSocket serverSocket;
+
+
+
+	virtual void clientFunc(char* buff, int buffSize){
+
+		cout << "S->C" << buff << endl;
+	}
+	
+	
+	bool checkClient(int lastMesTime, int limitTime){
+
+		int nowTime = clock();
+
+		if (nowTime - lastMesTime > limitTime){
+			return false;
+		}
+
+		return true;
+	}
+
+	void clientStart(TCP::ClientSocket clientSocket){
+
+
+		//char 
+		//clientSocket.send("Hello Client", -1);
+	}
+
+	void clientWork(TCP::ClientSocket clientSocket, int buffSize, int limitTime){
+
+		char* buff = new char[buffSize];
+		int lastMesTime = clock();
+
+		DWORD dw = true;
+		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+		clientStart();
+
+		while (true){
+
+
+			int recvCode = clientSocket.recv(buff, buffSize);
+
+			if (recvCode == 0){ break; }
+
+
+			if (recvCode != INVALID_SOCKET){
+
+				clientFunc(buff, buffSize);
+				lastMesTime = clock();
+			}
+			else{
+
+				if (WSAGetLastError() != WSAEWOULDBLOCK){ break; }
+			}
+
+
+			if (checkClient(lastMesTime, limitTime) == false){ break; }
+
+			Sleep(10);
+		}
+
+		delete buff;
+
+		dw = false;
+		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
+
+	}
+};
+
+
+
+class ServerS : public Server{
+
+public:
+	ServerS() : Server(8000){};
+
+	void clientFunc(char* buff, int buffSize){
+
+		cout << "S->->->C" << buff << endl;
+	}
+
+};
+
+
+void main(){
+
+
+	cout << sizeof(Server) << ' ' << sizeof(ServerS)<<endl;
+	Init();
+	ServerS s;
+	s.acceptCycleT(1000, 10000); 
+
+
+
+	while (1){
+		Sleep(1000);
+		cout << "size=" << s.clientList.getSize()<<endl;
+	}
+
+
+	system("pause");
+
+
+}
+
+
+
+
+
+///
+
+
 #pragma once
 
 #include <corteli/corteli.h>
@@ -16,21 +194,20 @@ public:
 	bool connectCycle(U_LONG ip, int port, int limNoCon = -1, int timeLimit = -1, int sleepBetweenTry = 100);
 
 	void work(int buffSize = 10000, int limitTime = 10000);
-	void clientFunc(char* buff, int size);
-	int send(char* buff, int len=-1, int flags = 0);
+	virtual void clientFunc(char* buff, int size);
+	int send(char* buff, int len = -1, int flags = 0);
 
 	std::thread* clientFuncT();
 
 
-	TCP::ClientSocket Client::getClientSocket();
+	TCP::ClientSocket* Client::getClientSocket();
 
 protected:
 	bool checkServer(int lastMesTime, int limitTime);
 	TCP::ClientSocket clientSocket;
 };
 
-
-///
+////
 
 
 
@@ -70,7 +247,7 @@ bool Client::connectCycle(U_LONG ip, int port, int limNoCon, int timeLimit, int 
 
 void Client::clientFunc(char* buff, int buffSize){
 
-	cout << "S->C"<<buff << endl;
+	cout << "S->C" << buff << endl;
 }
 
 bool Client::checkServer(int lastMesTime, int limitTime){
@@ -95,24 +272,25 @@ void Client::work(int buffSize, int limitTime){
 
 	while (true){
 
-		if (clientSocket.recv(buff, buffSize) != INVALID_SOCKET){
+		int recvCode = clientSocket.recv(buff, buffSize);
+
+		if (recvCode == 0){ break; }
+
+		if (recvCode != INVALID_SOCKET){
 
 			clientFunc(buff, buffSize);
 			lastMesTime = clock();
 		}
 		else{
 
-			if (WSAGetLastError() != WSAEWOULDBLOCK){
-				break;
-			}
+			if (WSAGetLastError() != WSAEWOULDBLOCK){ break; }
 		}
 
-		if (checkServer(lastMesTime, limitTime) == false){
-			break;
-		}
-
-		Sleep(1);
+		if (checkServer(lastMesTime, limitTime) == false){ break; }
+		Sleep(10);
 	}
+
+	cout << "end"<<endl;
 
 	dw = false;
 	ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
@@ -120,233 +298,64 @@ void Client::work(int buffSize, int limitTime){
 }
 
 
-/*
-std::thread* Client::clientFuncT(){
-
-	std::thread* clRecvThread;
-	clRecvThread = new std::thread(&Client::clientFunc, this);
-	clRecvThread->detach();
-	return clRecvThread;
-}
-*/
-
 int Client::send(char* buff, int len, int flags){
 
 	if (len == -1){
-		len = strlen(buff)+1;
+		len = strlen(buff) + 1;
 	}
 
 	return clientSocket.send(buff, len, flags);
 }
 
 
-TCP::ClientSocket Client::getClientSocket(){
+TCP::ClientSocket* Client::getClientSocket(){
 
-	return clientSocket;
+	return &clientSocket;
 }
 
+//////
 
 
-
-
-///
 
 #include "client.h"
 
 
 
-//template <typename T, size_t N>
-//size_t ArraySize(const T(&)[N]) { return N; }
+class ClientS : Client{
+
+	void clientFunc(char* buff, int size){
+
+		cout << "QQQ" << buff<<endl;
+	}
+
+	void 
+
+};
 
 
 void main(){
 
-	
+
 	Init();
-	Client* C=new Client;
+	Client* C = new Client;
 
 	while (1){
 		if (C->connectCycle(getInetAddr("127.0.0.1"), 8000)){
 
 			C->send("GET /wiki/HTTP HTTP/1.0\nHost: ru.wikipedia.org\n\n");
-			C->work(100, 1000);
+			C->work(100, 10000);
 		}
 
-		//TCP::ClientSocket s; 
-		//s.refresh();
-
-		delete C;
-		C == new Client;
+		
+		//cout <<"s="<< S<<endl;
+		C->getClientSocket()->reload();
+		//cout << "c=" << C->getClientSocket().getSocket() << endl;
+		
+		//C->getClientSocket().getInfo();
+		//delete C;
+		//C == new Client;
 	}
-
-
-	//C.send("GET /wiki/HTTP HTTP/1.0\nHost: ru.wikipedia.org\n\n");
-
-
-
 
 	system("pause");
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-////
-
-
-
-
-
-
-
-
-
-
-
-class Server{
-
-public:
-	Server(int port, U_LONG localAddr = 0){
-
-		serverSocket.bind(port, localAddr);
-		serverSocket.listen();
-	}
-
-	~Server(){
-
-		clientList.removeAll();
-	}
-
-	void acceptCycle(){
-
-		while (1){
-
-			TCP::ClientSocket *cl = serverSocket.accept();
-			cout << cl;
-
-			std::thread* clientFuncThread;
-			clientFuncThread = new std::thread(&Server::newClient, this, cl);
-			clientFuncThread->detach();
-		}
-	}
-
-	std::thread* acceptCycleT(){
-
-		std::thread* acceptCycleThread;
-		acceptCycleThread = new std::thread(&Server::acceptCycle, this);
-		acceptCycleThread->detach();
-		return acceptCycleThread;
-	}
-
-	int send(int clId, char* buff, int len, int flags = 0);
-
-	void newClient(TCP::ClientSocket* cl){
-
-		cout << "new cl" << endl;
-
-		clientList.add(cl);
-
-
-		clientWork(*cl, 10000, 10000);
-
-		for (int i = clientList.getSize(); i >= 0; --i){
-
-			if (clientList.get(i) == cl){
-				clientList.remove(i);
-				break;
-			}
-		}
-	}
-
-
-	List<TCP::ClientSocket*> clientList;
-private:
-	TCP::ServerSocket serverSocket;
-
-	
-
-	void clientFunc(char* buff, int buffSize){
-
-		cout << "S->C" << buff << endl;
-	}
-
-	bool checkClient(int lastMesTime, int limitTime){
-
-		int nowTime = clock();
-
-		if (nowTime - lastMesTime > limitTime){
-			return false;
-		}
-
-		return true;
-	}
-
-	void clientWork(TCP::ClientSocket clientSocket, int buffSize, int limitTime){
-
-		char* buff = new char[buffSize];
-		int lastMesTime = clock();
-
-		DWORD dw = true;
-		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
-
-
-		while (true){
-
-			if (clientSocket.recv(buff, buffSize) != INVALID_SOCKET){
-
-				clientFunc(buff, buffSize);
-				lastMesTime = clock();
-			}
-			else{
-
-				if (WSAGetLastError() != WSAEWOULDBLOCK){
-					break;
-				}
-			}
-
-			if (checkClient(lastMesTime, limitTime) == false){
-				break;
-			}
-
-			Sleep(1);
-		}
-
-		dw = false;
-		ioctlsocket(clientSocket.getSocket(), FIONBIO, &dw);
-
-	}
-};
-
-
-
-void main(){
-
-	Init();
-	Server s(8000);
-	s.acceptCycleT();
-
-
-
-	//Sleep(10000);
-	//cout << s.clientList.getSize();
-
-
-	system("pause");
-
 
 }
