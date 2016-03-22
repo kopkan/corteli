@@ -1,0 +1,7 @@
+b2 --stagedir=C:\boost_1_60_0cs_w address-model=32 -j4 --build-type=complete runtime-link=static define=BOOST_USE_WINAPI_VERSION=0x0501
+
+b2 --stagedir=C:\boost_1_60_0c_w address-model=32 -j4 --build-type=complete define=BOOST_USE_WINAPI_VERSION=0x0501
+
+b2 --stagedir=C:\boost_1_60_0c_w64 address-model=64 -j4 --build-type=complete define=BOOST_USE_WINAPI_VERSION=0x0501
+
+b2 --stagedir=C:\boost_1_60_0cs_w64 address-model=64 -j4 --build-type=complete runtime-link=static define=BOOST_USE_WINAPI_VERSION=0x0501
