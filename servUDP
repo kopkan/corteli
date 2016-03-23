@@ -1,0 +1,54 @@
+#include <iostream>
+#include <boost/bind.hpp>
+#include <boost/asio.hpp>
+#include <boost/thread/thread.hpp>
+#include <ctime>
+using boost::asio::ip::udp;
+
+using namespace boost::asio;
+using namespace std;
+
+int main(int argc, char* argv[])
+{
+
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+
+	try
+	{
+		io_service io_service;
+
+
+
+
+		udp::socket s(io_service, udp::endpoint(udp::v4(), 3002));
+		udp::endpoint sender_endpoint;
+
+
+		
+		while (1) {
+
+			//s.send_to(buffer("123", 4), endpoint);
+
+			char reply[1000];
+			size_t reply_length = s.receive_from(boost::asio::buffer(reply, 500), sender_endpoint);
+			s.send(boost::asio::buffer(reply, 500));
+
+
+			cout << reply << endl;
+
+			Sleep(1000);
+
+		}
+
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+
+
+	system("pause");
+
+	return 0;
+}
