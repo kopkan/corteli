@@ -1,44 +1,33 @@
-#include <iostream>
-#include <boost/bind.hpp>
+//#include <boost/bind.hpp>
 #include <boost/asio.hpp>
-#include <boost/thread/thread.hpp>
-#include <ctime>
+#include <boost/thread.hpp>
 using boost::asio::ip::udp;
+using boost::asio::ip::tcp;
 
 using namespace boost::asio;
+
+//#include <iostream>
+//#include <ctime>
 using namespace std;
 
-int main(int argc, char* argv[])
-{
 
-	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
-	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+void udp_test() {
 
 	try
 	{
 		io_service io_service;
-
-
-
-
-		udp::socket s(io_service, udp::endpoint(udp::v4(), 3002));
+		udp::socket server(io_service, udp::endpoint(ip::address::from_string("127.0.0.1"), 3002));
 		udp::endpoint sender_endpoint;
 
 
-		
 		while (1) {
-
-			//s.send_to(buffer("123", 4), endpoint);
-
 			char reply[1000];
-			size_t reply_length = s.receive_from(boost::asio::buffer(reply, 500), sender_endpoint);
-			s.send(boost::asio::buffer(reply, 500));
-
+			size_t reply_length = server.receive_from(buffer(reply, 500), sender_endpoint);
+			server.send_to(buffer(reply, 500), sender_endpoint);
 
 			cout << reply << endl;
 
 			Sleep(1000);
-
 		}
 
 	}
@@ -47,8 +36,70 @@ int main(int argc, char* argv[])
 		std::cerr << "Exception: " << e.what() << "\n";
 	}
 
+}
+
+
+void client(tcp::socket *sock) {
+
+	try
+	{
+		while (1) {
+
+			//boost::system::error_code err;
+			char reply[1000];
+
+
+			size_t reply_length = sock->receive(buffer(reply, 500));
+			sock->send(buffer(reply, 500));
+			cout << reply << endl;
+
+			Sleep(1000);
+		}
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+
+
+}
+
+void tcp_test() {
+
+	try
+	{
+		io_service io_service;
+
+		tcp::acceptor server(io_service, tcp::endpoint(ip::address::from_string("127.0.0.1"), 8800));
+
+		while (1)
+		{
+			tcp::socket *sock = new tcp::socket(io_service);
+			server.accept(*sock);
+			cout << sock->remote_endpoint() << endl;
+			cout << sock->local_endpoint() << endl;
+
+
+			boost::thread Thread(client, sock);
+			Thread.detach();
+		}
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+
+}
+
+int main(int argc, char* argv[])
+{
+
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+	//udp_test();
+
+	tcp_test();
 
 	system("pause");
-
 	return 0;
 }
