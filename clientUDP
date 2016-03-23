@@ -6,12 +6,11 @@
 using namespace std;
 using namespace boost::asio;
 using boost::asio::ip::udp;
+using boost::asio::ip::tcp;
 
-int main(int argc, char* argv[])
-{
-	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
-	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
 
+
+void udp_test() {
 
 	try
 	{
@@ -21,25 +20,71 @@ int main(int argc, char* argv[])
 
 		udp::resolver resolver(io_service);
 		udp::endpoint endpoint = *resolver.resolve({ udp::v4(), "127.0.0.1", "3002" });
-		udp::endpoint sender_endpoint;
 
 		while (1) {
-		
+
 			s.send_to(buffer("123", 4), endpoint);
 
 			char reply[1000];
+
+			udp::endpoint sender_endpoint;
 			size_t reply_length = s.receive_from(boost::asio::buffer(reply, 500), sender_endpoint);
 
-			cout << reply<<endl;
+			cout << reply << endl;
 
 			Sleep(1000);
-		
+
 		}
 	}
 	catch (std::exception& e)
 	{
 		std::cerr << "Exception: " << e.what() << "\n";
 	}
+}
+
+
+
+int main(int argc, char* argv[])
+{
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+
+
+	//udp_test();
+
+
+
+	try
+	{
+		boost::asio::io_service io_service;
+
+		tcp::socket client(io_service);
+		tcp::endpoint serv_point(ip::address_v4::from_string("127.0.0.1"), 8800);
+
+		client.connect(serv_point);
+
+		std::cout << client.remote_endpoint() << std::endl;
+		std::cout << client.local_endpoint() << std::endl;
+
+		while (1) {
+
+			client.send(buffer("123", 4));
+
+			char reply[1000];
+			size_t reply_length = client.receive(buffer(reply, 500));
+			cout << reply << endl;
+
+			Sleep(1000);
+
+		}
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+
+
+
 
 	system("pause");
 	return 0;
