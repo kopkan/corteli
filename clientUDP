@@ -2,6 +2,7 @@
 #include <cstring>
 #include <iostream>
 #include <boost/asio.hpp>
+#include <boost/thread.hpp>
 
 using namespace std;
 using namespace boost::asio;
@@ -43,16 +44,7 @@ void udp_test() {
 }
 
 
-
-int main(int argc, char* argv[])
-{
-	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
-	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
-
-
-	//udp_test();
-
-
+void tcp_test() {
 
 	try
 	{
@@ -83,8 +75,190 @@ int main(int argc, char* argv[])
 		std::cerr << "Exception: " << e.what() << "\n";
 	}
 
+}
 
 
+
+void tcp_client_recv(const boost::system::error_code & ec, std::size_t bytes_transferred) {
+
+	//cout << "123456";
+	//throw 123;
+}
+
+void tcp_client() {
+
+
+	try
+	{
+		boost::asio::io_service io_service;
+
+		tcp::socket client(io_service);
+		tcp::endpoint serv_point(ip::address_v4::from_string("127.0.0.1"), 8800);
+
+		client.connect(serv_point);
+
+		std::cout << client.remote_endpoint() << std::endl;
+		std::cout << client.local_endpoint() << std::endl;
+
+		client.send(buffer("Hello serv123"));
+
+		cout << "cout" << endl;
+
+
+		char reply[1000];
+
+		while (1) {
+
+			client.receive(buffer(reply, 1000));
+
+			cout << reply << endl;
+			Sleep(1000);
+			client.send(buffer("777"));
+		}
+
+
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+}
+
+
+
+
+namespace corteli {
+
+	class Client {
+
+	public:
+		Client() {
+		
+			io_service = new boost::asio::io_service;
+
+			clientSocket = new tcp::socket(*io_service);
+		}
+
+		~Client() {
+		
+			//cout << "qwerty" << endl;
+			//clientSocket->shutdown(clientSocket->shutdown_both);
+		}
+
+		void bind(char* ip, int port = 0) {
+		
+			clientSocket->open(tcp::v4());
+
+			tcp::endpoint myPoint(ip::address_v4::from_string(ip), port);
+			clientSocket->bind(myPoint);
+		}
+
+		int connect(char* ip, int port = 0) {
+		
+			tcp::endpoint servPoint(ip::address_v4::from_string(ip), port);
+
+			
+			boost::system::error_code err;
+			clientSocket->connect(servPoint, err);
+
+			return err.value();
+		}
+
+		bool connectCycle(char* ip, int port, int limNoCon = -1, int timeLimit = -1, int sleepBetweenTry = 100) {
+
+			int startTime = clock();
+			int nowTime;
+
+			for (int i = limNoCon; i > 0 || limNoCon == -1; --i) {
+
+				nowTime = clock();
+				cout << "try con" << endl;
+				if ((nowTime - startTime > timeLimit) || timeLimit == -1) {
+
+					if (connect(ip, port) == 0) {
+						return true;
+					}
+
+					Sleep(sleepBetweenTry);
+				}
+			}
+			return false;
+		}
+
+		int recv(char* buff, int size) {
+		
+			return clientSocket->receive(buffer(buff, size));
+		}
+
+		void recvCycle(char* buff, int size) {
+
+			while (1) {
+
+				if (recv(buff, size) > 0) {
+					cout << buff << endl;
+				}
+				else {
+					cout << "END CONN!" << endl;
+					break;
+				}
+			}
+		}
+		
+		boost::thread* recvCycleT(char* buff, int size) {
+
+			boost::thread* clRecvThread;
+			clRecvThread = new boost::thread(&Client::recvCycle, this, buff, size);
+			clRecvThread->detach();
+			return clRecvThread;
+		}
+
+
+		int send(char* buff, int size=-1) {
+
+			if (size == -1) {
+			
+				size = strlen(buff) + 1;
+			}
+
+			return clientSocket->send(buffer(buff, size));
+
+		}
+
+	private:
+		boost::asio::io_service* io_service;
+		tcp::socket* clientSocket;
+	};
+};
+
+
+
+
+int main(int argc, char* argv[])
+{
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+
+	//udp_test();
+	//tcp_test();
+
+
+	//tcp_client();
+
+	try
+	{
+		corteli::Client c;
+		c.bind("127.0.0.1", 80900);
+		c.connectCycle("127.0.0.1", 8800);
+		c.send("123");
+
+		char buff[100];
+		c.recvCycleT(buff, 100);
+
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
 
 	system("pause");
 	return 0;
