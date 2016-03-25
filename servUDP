@@ -1,13 +1,9 @@
-//#include <boost/bind.hpp>
 #include <boost/asio.hpp>
 #include <boost/thread.hpp>
 using boost::asio::ip::udp;
 using boost::asio::ip::tcp;
 
 using namespace boost::asio;
-
-//#include <iostream>
-//#include <ctime>
 using namespace std;
 
 
@@ -45,13 +41,18 @@ void client(tcp::socket *sock) {
 	{
 		while (1) {
 
-			//boost::system::error_code err;
 			char reply[1000];
 
+			size_t reply_length = sock->receive(buffer(reply));
 
-			size_t reply_length = sock->receive(buffer(reply, 500));
-			sock->send(buffer(reply, 500));
-			cout << reply << endl;
+
+
+			cout << "rec=" <<reply << endl;
+			sock->send(buffer(reply, strlen(reply)+1));
+			cout << "send=" << reply << endl;
+
+
+
 
 			Sleep(1000);
 		}
@@ -96,7 +97,7 @@ int main(int argc, char* argv[])
 
 	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
 	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
-	//udp_test();
+							  //udp_test();
 
 	tcp_test();
 
