@@ -6,101 +6,119 @@ using boost::asio::ip::tcp;
 using namespace boost::asio;
 using namespace std;
 
-
-void udp_test() {
-
-	try
+class session
+{
+public:
+	session(boost::asio::io_service& io_service)
+		: socket_(io_service)
 	{
-		io_service io_service;
-		udp::socket server(io_service, udp::endpoint(ip::address::from_string("127.0.0.1"), 3002));
-		udp::endpoint sender_endpoint;
-
-
-		while (1) {
-			char reply[1000];
-			size_t reply_length = server.receive_from(buffer(reply, 500), sender_endpoint);
-			server.send_to(buffer(reply, 500), sender_endpoint);
-
-			cout << reply << endl;
-
-			Sleep(1000);
-		}
-
-	}
-	catch (std::exception& e)
-	{
-		std::cerr << "Exception: " << e.what() << "\n";
 	}
 
-}
-
-
-void client(tcp::socket *sock) {
-
-	try
+	tcp::socket& socket()
 	{
-		while (1) {
-
-			char reply[1000];
-
-			size_t reply_length = sock->receive(buffer(reply));
-
-
-
-			cout << "rec=" <<reply << endl;
-			sock->send(buffer(reply, strlen(reply)+1));
-			cout << "send=" << reply << endl;
-
-
-
-
-			Sleep(1000);
-		}
-	}
-	catch (std::exception& e)
-	{
-		std::cerr << "Exception: " << e.what() << "\n";
+		return socket_;
 	}
 
-
-}
-
-void tcp_test() {
-
-	try
+	void start()
 	{
-		io_service io_service;
+		socket_.async_read_some(boost::asio::buffer(data_, max_length),
+			boost::bind(&session::handle_read, this,
+				boost::asio::placeholders::error,
+				boost::asio::placeholders::bytes_transferred));
+	}
 
-		tcp::acceptor server(io_service, tcp::endpoint(ip::address::from_string("127.0.0.1"), 8800));
-
-		while (1)
+	void handle_read(const boost::system::error_code& error,
+		size_t bytes_transferred)
+	{
+		if (!error)
 		{
-			tcp::socket *sock = new tcp::socket(io_service);
-			server.accept(*sock);
-			cout << sock->remote_endpoint() << endl;
-			cout << sock->local_endpoint() << endl;
-
-
-			boost::thread Thread(client, sock);
-			Thread.detach();
+			cout << "new read" << endl;
+			boost::asio::async_write(socket_,
+				boost::asio::buffer(data_, bytes_transferred),
+				boost::bind(&session::handle_write, this,
+					boost::asio::placeholders::error));
+		}
+		else
+		{
+			delete this;
 		}
 	}
-	catch (std::exception& e)
+
+	void handle_write(const boost::system::error_code& error)
 	{
-		std::cerr << "Exception: " << e.what() << "\n";
+		if (!error)
+		{
+			cout << data_ << endl;
+			cout << "new write" << endl;
+			socket_.async_read_some(boost::asio::buffer(data_, max_length),
+				boost::bind(&session::handle_read, this,
+					boost::asio::placeholders::error,
+					boost::asio::placeholders::bytes_transferred));
+		}
+		else
+		{
+			delete this;
+		}
 	}
 
-}
+private:
+	tcp::socket socket_;
+	enum { max_length = 1024 };
+	char data_[max_length];
+};
+
+class server
+{
+public:
+	server(boost::asio::io_service& io_service, short port)
+		: io_service_(io_service),
+		acceptor_(io_service, tcp::endpoint(tcp::v4(), port))
+	{
+		session* new_session = new session(io_service_);
+		acceptor_.async_accept(new_session->socket(),
+			boost::bind(&server::handle_accept, this, new_session,
+				boost::asio::placeholders::error));
+	}
+
+	void handle_accept(session* new_session,
+		const boost::system::error_code& error)
+	{
+		if (!error)
+		{
+			cout << "new accept" << endl;
+			new_session->start();
+			new_session = new session(io_service_);
+			acceptor_.async_accept(new_session->socket(),
+				boost::bind(&server::handle_accept, this, new_session,
+					boost::asio::placeholders::error));
+		}
+		else
+		{
+			delete new_session;
+		}
+	}
+
+private:
+	boost::asio::io_service& io_service_;
+	tcp::acceptor acceptor_;
+};
+
+
 
 int main(int argc, char* argv[])
 {
+	try
+	{
 
-	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
-	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
-							  //udp_test();
+		boost::asio::io_service io_service;
+		server s(io_service, 8800);
 
-	tcp_test();
+		io_service.run();
+	}
+	catch (std::exception& e)
+	{
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
 
-	system("pause");
 	return 0;
 }
