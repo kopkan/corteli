@@ -1,3 +1,55 @@
+boost::unordered_map<char*, int> h;
+
+
+void sender() {
+
+
+	while (1) {
+	
+		cout << 123;
+		//boost::this_thread::interruption_point();
+
+
+
+		boost::this_thread::interruptible_wait(1000);
+
+		//boost::this_thread::disable_interruption();
+
+		//Sleep(1000);
+	}
+
+}
+
+void mainThread()
+{
+	boost::thread thrd(sender);
+
+	//cout << boost::thread::hardware_concurrency() << endl;
+
+	//thrd = boost::thread(sender); //start thread
+		//thrd.join();
+	Sleep(300);
+
+
+		
+		//boost::thread_interrupted();
+		//thrd.interruption_requested();
+
+	//thrd.detach();
+
+	Sleep(300);
+		
+	//thrd.interrupt();
+	
+	TerminateThread(thrd.native_handle(), 0);
+		
+}
+
+
+
+
+
+
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
