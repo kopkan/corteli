@@ -1,104 +1,306 @@
-#include "Client.h"
+#include "BaseClient.h"
+
 
 using namespace std;
-using namespace boost::asio;
-using boost::asio::ip::udp;
-using boost::asio::ip::tcp;
 
 namespace corteli {
 
-	Client::Client()
+	BaseClient::BaseClient(boost::asio::io_service* ioService)
 	{
-		_init();
+		_init(ioService);
 	}
 
-	Client::Client(int port, char* ip)
+	BaseClient::~BaseClient()
 	{
-		_init();
-		bind(port, ip);
+		startT();
+		close();
 	}
 
-	Client::~Client()
+	void BaseClient::_init(boost::asio::io_service* ioService)
 	{
-		clientSocket->close();
-		delete clientSocket;
-		delete io_service;
-	}
-
-	int Client::bind(int port, char* ip)
-	{
-
-		clientSocket->open(tcp::v4());
-		tcp::endpoint myPoint(ip::address_v4::from_string(ip), port);
-		clientSocket->bind(myPoint, err);
-
-		return err.value();
-	}
-
-	int Client::connect(char* ip, int port)
-	{
-
-		tcp::endpoint servPoint(ip::address_v4::from_string(ip), port);
-		clientSocket->connect(servPoint, err);
-
-		return err.value();
-	}
-
-	int Client::send(char* buff, int size)
-	{
-
-		if (size == -1) {
-
-			size = strlen(buff) + 1;
+		if (ioService == NULL)
+		{
+			_ioService = new boost::asio::io_service;
+			_isNewIoService = true;
+		}
+		else
+		{
+			_ioService = ioService;
 		}
 
-		clientSocket->send(buffer(buff, size), 0, err);
-
-		return err.value();
-
-	}
-
-	int Client::recv(char* buff, int size)
-	{
-
-		clientSocket->receive(buffer(buff, size), 0, err);
-
-		lastMesTime = clock();
-
-		return err.value();
+		_clientSocket = new boost::asio::ip::tcp::socket(*_ioService);
 	}
 
 
 
-
-	bool Client::connectCycle(char* ip, int port, int limNoCon, int timeLimit, int sleepBetweenTry)
+	int BaseClient::_bind(boost::asio::ip::tcp::endpoint localAddr)
 	{
-		cout << ip << ' ' << port<<endl;
+		boost::system::error_code err;
+
+		_clientSocket->open(boost::asio::ip::tcp::v4(), err);
+		if (err.value() != 0)
+		{
+			cout << "open err";
+			return err.value();
+		}
+
+
+		_clientSocket->bind(localAddr, err);
+		if (err.value() != 0)
+		{
+			cout << "bind err";
+		}
+
+		return err.value();
+	}
+
+	int BaseClient::_connect(boost::asio::ip::tcp::endpoint remoteAddr)
+	{
+		boost::system::error_code err;
+		_clientSocket->connect(remoteAddr, err);
+
+		return err.value();
+	}
+
+	bool BaseClient::_connectCycle(boost::asio::ip::tcp::endpoint remoteAddr, int limNoCon, int timeLimit, int sleepBetweenTry)
+	{
 
 		int startTime = clock();
 		int nowTime;
 
 		for (int i = limNoCon; i > 0 || limNoCon == -1; --i) {
 
+			if (_error != 0) {//bad
+			
+				return true;
+			}
+
 			nowTime = clock();
 			cout << "try con" << endl;
 			if ((nowTime - startTime > timeLimit) || timeLimit == -1) {
 
-				if (connect(ip, port) == 0) {
+				int con = _connect(remoteAddr);
+
+				if (con == 0 || con == 10056) {//ok or already connected
+
 					return true;
 				}
-
 				Sleep(sleepBetweenTry);
 			}
 		}
+
 		return false;
 	}
 
-	void Client::recvCycle(int size) {
+	int BaseClient::send(char* buff, int size)
+	{
+		if (_status > 2 && _status < 5)
+		{
+			boost::system::error_code err;
+
+			if (size == -1) {
+				size = strlen(buff) + 1;
+			}
+
+			_clientSocket->send(boost::asio::buffer(buff, size), 0, err);
+
+			return err.value();
+		}
+		else
+		{
+			return 100;
+		}
+	}
+
+
+	void BaseClient::_recvCycleT(int buffSize)
+	{
+
+		boost::thread* _recvT = new boost::thread(&BaseClient::_recvCycle, this, buffSize);
+		_recvT->detach();
+
+	}
+
+	int BaseClient::start()
+	{
+		//мьютекс
+
+		if (_isWork) {
+			return 100;
+		}
+
+		_isWork = true;
+		_error = 0;
+		_status = 0;
+
+		while (_isWork && _error == 0) {
+
+			switch (_status)
+			{
+			case 0:
+			{
+				_init(_ioService);
+				_status = 1;
+			}
+			case 1:
+			{
+				if (_bind(_localAddr) == 0)
+				{
+					_status = 2;
+				}
+				else
+				{
+					_error = 1;
+				}
+				break;
+			}
+			case 2:
+			{
+				if (_connectCycle(_remoteAddr) == true)
+				{
+					_status = 3;
+				}
+				else
+				{
+					_error = 2;
+				}
+				break;
+			}
+			case 3:
+			{
+				_recvCycleT(_recvBuffSize);
+				_status = 4;
+				break;
+			}
+			case 4:
+			{
+				cout << "expansion" << endl;
+				if (_expansion() != 0)
+				{
+					_error = 4;
+				}
+				break;
+			}
+			default:
+				break;
+			}
+		}
+
+
+		if (_error > 0) {
+			cout << "_destroy" << endl;
+			if (_destroy() != 0)
+			{
+				_error = 5;
+			}
+
+			_isWork = false;
+			_status = 0;
+			//_endWork();
+		}
+
+
+		cout << "err=" <<_error << endl;
+
+		return _error;
+	}
+
+	int BaseClient::startT()
+	{
+		//мьютекс
+
+		if (_isWork) 
+		{
+			return 100;
+		}
+
+		_workT= new boost::thread(&BaseClient::start, this);
+		_workT->detach();
+
+
+		
+		while (!_isWork) 
+		{
+			Sleep(1);
+		}
+
+		return 0;
+	}
+
+	int BaseClient::conInfo(boost::asio::ip::tcp::endpoint remoteAddr, int recvBuffSize, boost::asio::ip::tcp::endpoint localAddr)
+	{
+		_remoteAddr = remoteAddr;
+		_recvBuffSize = recvBuffSize;
+		_localAddr = localAddr;
+
+		return 0;
+	}
+
+	void BaseClient::close()
+	{
+		//мьютекс
+		cout << "CLOSE" << endl;
+		if (_isWork)
+		{
+			_error = 100;
+			while (_isWork != 0) {
+			
+				Sleep(1);
+			}
+		}
+		else
+		{
+			cout << "no work" << endl;
+		}
+	}
+
+	int BaseClient::_expansion()
+	{
+
+		Sleep(100);
+
+		return 0;
+	}
+
+
+	int BaseClient::_destroy()
+	{
+		boost::system::error_code err;
+
+		try
+		{
+			_clientSocket->close(err);
+			delete _clientSocket;
+			_clientSocket = NULL;
+
+			if (_isNewIoService) 
+			{
+				delete _ioService;
+				_ioService = NULL;
+			}
+		}
+		catch (...) 
+		{
+			cout << "destroy err" << endl;
+		}
+
+		return err.value();
+	}
+
+	int BaseClient::_recv(char* buff, int size)
+	{
+		boost::system::error_code err;
+		_clientSocket->receive(boost::asio::buffer(buff, size), 0, err);
+		return err.value();
+	}
+
+	void BaseClient::_recvCycle(int size)
+	{
+		char* buff = new char[size];
 
 		while (1) {
 
-			if (recv(buff, size) == 0) {
+			if (_recv(buff, size) == 0) {
 				_newMessage(buff, size);
 			}
 			else {
@@ -106,120 +308,20 @@ namespace corteli {
 				break;
 			}
 		}
+
+		delete buff;
 	}
 
 
-
-	boost::thread* Client::recvCycleT(int size)
+	void BaseClient::_newMessage(char* buff, int size)
 	{
-		recvT = new boost::thread(&Client::recvCycle, this, size);
-		recvT->detach();
-		
-		return recvT;
+		cout << "recv=" << buff << endl;
 	}
 
-	bool Client::checkOnline()
+	void BaseClient::_endWork()
 	{
-
-		if (clock() < lastMesTime + 10000) {
-			return true;
-		}
-		cout << lastMesTime << ' ' << clock() << endl;
-
-		return false;
+		cout << "_endWork" << endl;
 	}
 
-	void Client::checkOnlineCycle()
-	{
-
-		while (checkOnline()) {
-
-			Sleep(1000);
-			cout << "time" << endl;
-		}
-
-		cout << "time err" << endl;
-
-	}
-
-	boost::thread* Client::checkOnlineCycleT()
-	{
-
-		checkOnlineT = new boost::thread(&Client::checkOnlineCycle, this);
-		checkOnlineT->detach();
-		return checkOnlineT;
-	}
-
-
-	void Client::_newMessage(char* buff, int size) {
-
-		cout << buff << endl;
-
-	}
-
-	void Client::start(char* ip, int port, int buffSize, int time)
-	{
-		buff = new char[buffSize];
-		connectCycle(ip, port);
-		recvCycleT(buffSize);
-		checkOnlineCycleT();
-
-	}
-
-	void Client::close()
-	{
-		_endConnection();
-	}
-
-	void Client::_init()
-	{
-		io_service = new boost::asio::io_service;
-		clientSocket = new tcp::socket(*io_service);
-		lastMesTime = clock();
-	}
-
-
-	char* strToChar(string str) {
-	
-		char* buff = new char[100];
-
-		for (int i = str.size(); i >= 0; --i) {
-		
-			buff[i] = str[i];
-		}
-
-		return buff;
-	}
-
-	void Client::_endConnection() 
-	{
-
-
-		char* ip = strToChar(clientSocket->remote_endpoint().address().to_string());
-		int port = clientSocket->remote_endpoint().port();
-
-
-		cout << (int)ip[0] << (int)'1' << endl;
-
-		clientSocket->close();
-
-		
-		//checkOnlineT->sleep();
-
-		//boost::thread_group my_threads;
-
-
-		delete checkOnlineT;
-		delete recvT;
-		//kill thread
-
-		clientSocket = new tcp::socket(*io_service);
-		lastMesTime = clock();
-
-		cout << ip << endl;
-
-		start(ip, port, 100, 1000);
-		delete ip;
-	}
 
 };
