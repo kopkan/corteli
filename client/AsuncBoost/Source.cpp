@@ -72,11 +72,12 @@ public:
 		cout << ec.message() << endl;
 		//cout << "con" << endl;
 
-		if (ec != 0)
+		if (!_stop)
 		{
-			Sleep(1);
+			if (ec != 0)
+			{
+				Sleep(1);
 
-			if (!_stop) {
 				_cl->async_connect(_remoteAddr,
 
 					boost::bind(&cl::conA, this,
@@ -84,18 +85,18 @@ public:
 						)
 					);
 			}
-		}
-		else
-		{
-			_cl->send(boost::asio::buffer("hello"));
+			else
+			{
+				_cl->send(boost::asio::buffer("hello"));
 
-			_cl->async_receive(boost::asio::buffer(reply, 1000), 0,
+				_cl->async_receive(boost::asio::buffer(reply, 1000), 0,
 
-				boost::bind(&cl::recvA, this,
-					boost::asio::placeholders::error,
-					boost::asio::placeholders::bytes_transferred)
+					boost::bind(&cl::recvA, this,
+						boost::asio::placeholders::error,
+						boost::asio::placeholders::bytes_transferred)
 
-				);
+					);
+			}
 		}
 
 	}
