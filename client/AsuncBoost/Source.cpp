@@ -3,6 +3,9 @@
 
 #include "BaseClient.h"
 
+#include "BaseAsuncClient.h"
+#include <corteli\list\list.h>
+
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
 
@@ -54,130 +57,98 @@ system("pause");
 */
 
 
-class cl
+
+class BasePool
 {
+
 public:
-	void setAttr(boost::asio::io_service* io, boost::asio::ip::tcp::endpoint remoteAddr)
+	BasePool(boost::asio::io_service* io2)
 	{
-		_io = io;
-		_cl = new boost::asio::ip::tcp::socket(*_io);
-		_remoteAddr = remoteAddr;
-
+		io = io2;
 	}
 
-	void conA(const boost::system::error_code & ec) {
+	int add(corteli::BaseAsuncClient* cl)
+	{
+		l.add(cl);
 
-		cout << ec << endl;
-		cout << _stop << endl;
-		cout << ec.message() << endl;
-		//cout << "con" << endl;
+		cl->start();
 
-		if (!_stop)
+		return 0;
+	}
+
+	corteli::BaseAsuncClient* get(int n)
+	{
+		return l.get(n);
+	}
+
+	void ioRun() 
+	{
+		while (1)
 		{
-			if (ec != 0)
-			{
-				Sleep(1);
+			io->run();
+			//cout << "run end" << endl;
 
-				_cl->async_connect(_remoteAddr,
-
-					boost::bind(&cl::conA, this,
-						boost::asio::placeholders::error
-						)
-					);
-			}
-			else
-			{
-				_cl->send(boost::asio::buffer("hello"));
-
-				_cl->async_receive(boost::asio::buffer(reply, 1000), 0,
-
-					boost::bind(&cl::recvA, this,
-						boost::asio::placeholders::error,
-						boost::asio::placeholders::bytes_transferred)
-
-					);
-			}
+			Sleep(10);
 		}
-
 	}
 
-	void recvA(const boost::system::error_code & ec, std::size_t bytes_transferred)
+	void workRun()
 	{
-
-		cout << "r=" << bytes_transferred << ' ' << reply << endl;
-
-		if (!_stop) {
-			_cl->send(boost::asio::buffer("777"));
-			_cl->async_receive(boost::asio::buffer(reply, 1000), 0,
-
-				boost::bind(&cl::recvA, this,
-					boost::asio::placeholders::error,
-					boost::asio::placeholders::bytes_transferred)
-
-				);
-		}
-		else {
-			cout << "stop" << endl;
+		while (1)
+		{
+			for (int i = 0; i < l.getSize(); i++)
+			{
+				l.get(i)->send("frash");
+			}
+			Sleep(1000);
 		}
 	}
+
 
 	void start()
 	{
-		_cl->async_connect(_remoteAddr,
-			boost::bind(&cl::conA, this, boost::asio::placeholders::error)
-			);
+		boost::thread(&BasePool::ioRun, this);
+		boost::thread(&BasePool::workRun, this);
 	}
 
-	void stop() {
-
-		cout << "stop st" << endl;
-		_stop = true;
-		_cl->close();
-		cout << "stop end" << endl;
-	}
-
-
-
-
-private:
-	boost::asio::io_service* _io;
-	boost::asio::ip::tcp::socket* _cl;
-	boost::asio::ip::tcp::endpoint _remoteAddr;
-	bool _stop = false;
-	char reply[1000];
-
+	boost::asio::io_service* io;
+	List<corteli::BaseAsuncClient*> l;
 
 };
 
 
 
-void start(boost::asio::io_service* io) {
-
-	while (1) {
-		io->run();
-		//Sleep(10);
-
-		cout << "run end" << endl;
-
-		Sleep(1000);
-	}
-}
-
 void f() {
 
 	boost::asio::io_service io;
+	corteli::BaseAsuncClient C;
 
-	cl C;
-	C.setAttr(&io, { boost::asio::ip::address_v4::from_string("93.125.78.1"), 8800 });
-	C.start();
 
-	Sleep(1000);
-	C.stop();
+	C.setIO(&io);
+	C.setAttr({ boost::asio::ip::address_v4::from_string("127.0.0.1"), 8800 }, {}, 10000);
 
 
 
+	BasePool pool(&io);
+	cout << pool.add(&C);
 
-	boost::thread(start, &io);
+	pool.start();
+
+	/*
+	while (1) {
+
+		pool.get(0)->start();
+
+		//cout << pool.get(0)->getError() << endl;
+		Sleep(10000);
+		cout << "er1=" << pool.get(0)->getError() << endl;
+
+		cout <<"stop="<< pool.get(0)->stop() << endl;
+		cout <<"er2="<< pool.get(0)->getError() << endl;
+		break;
+	}
+	*/
+
 
 	system("pause");
 }
@@ -185,6 +156,8 @@ void f() {
 int main(int argc, char* argv[])
 {
 
+
+	boost::asio::ip::address_v4::from_string("93.127.78.100");
 
 	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
 	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
