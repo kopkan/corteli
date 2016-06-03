@@ -35,3 +35,45 @@
 			memcpy(&bigBuff[tmpLen], &buff[0], size);
 			tmpLen += size;
 		}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	void BUFFERING(char* buff, int size)
+	{
+		memcpy(&b2[ptr], buff, size);
+		q++;
+		ptr += size;
+
+		
+		if (q > 2)
+		{
+			unsigned long long mesId = BaseClient::sendAsunc(b2, ptr);
+			cout << "------" << ptr << ' '<< mesId << endl;
+
+			q = 0;
+			ptr = 0;
+		}
+
+	}
