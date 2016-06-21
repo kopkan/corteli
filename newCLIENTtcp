@@ -1,0 +1,287 @@
+#include <boost/asio.hpp>
+#include <boost/bind.hpp>
+#include <thread>
+
+#include <corteli/Base/BaseObject/BaseObject.h>
+#pragma comment(lib, "corteli/Base/BaseObject/BaseObject.lib")
+
+
+
+
+
+class Socket : corteli::base::BaseObject
+{
+public:
+	enum status
+	{
+		NOT_INIT = 0, INITED = 1, BOUND = 2, CONNECTED = 3, RECV_STARTED = 4, HELLO_SAID = 5, END_WORK = 6
+	};
+	enum error
+	{
+		NO_ERR = 0, BIND_ERR = 1, CONNECT_ERR = 2, RECV_ERR = 3, HELLO_ERR = 4, SEND_ERR=5, EXSPANCION_ERR = 6, DESTROY_ERR = 7, CLOSE = 100, CALL_DENIED = 200
+	};
+
+	Socket(bool enableDebugMessage) : BaseObject(enableDebugMessage)
+	{}
+
+	/*
+	bool isWork()
+	{
+		return _isWork;
+	}
+	*/
+
+	int getStatus()
+	{
+		return _status;
+	}
+
+	int getError()
+	{
+		return _error;
+	}
+
+	void setError(error err)
+	{
+		_error = err;
+	}
+
+
+	void init(boost::asio::io_service* ioService = NULL, boost::asio::ip::tcp::socket* socket = NULL)
+	{
+		_ioService = ioService;
+		if (ioService == NULL)
+		{
+			_ioService = new boost::asio::io_service;
+			BaseObject::write("create io");
+		}
+
+
+		_socket = socket;
+		if (socket == NULL)
+		{
+			_socket = new boost::asio::ip::tcp::socket(*_ioService);
+			BaseObject::write("create socket");
+		}
+
+
+
+		boost::system::error_code ec;
+
+		if (_socket->remote_endpoint(ec).port() != 0)
+		{
+			BaseObject::write("sock connecter");
+			_status = status::CONNECTED;
+		}
+		else
+		{
+			BaseObject::write("init end");
+			_status = status::INITED;
+		}
+	}
+
+
+	int bind(boost::asio::ip::tcp::endpoint localAddr)
+	{
+		if (_status >= status::INITED)
+		{
+			boost::system::error_code err;
+
+			_socket->open(boost::asio::ip::tcp::v4(), err);
+
+
+			if (err.value())
+			{
+				BaseObject::write(err.value());
+				BaseObject::write(err.message());
+				setError(error::BIND_ERR);
+				return err.value();
+			}
+
+
+			_socket->bind(localAddr, err);
+
+			if (err.value())
+			{
+				BaseObject::write(err.value());
+				BaseObject::write(err.message());
+				setError(error::BIND_ERR);
+				return err.value();
+			}
+
+			_status = status::BOUND;
+			return error::NO_ERR;
+
+		}
+		else
+		{
+			return error::CALL_DENIED;
+		}
+	}
+
+
+	int connect(boost::asio::ip::tcp::endpoint remoteAddr)
+	{
+		if (_status >= status::INITED)
+		{
+			_socket->async_connect(remoteAddr,
+
+				boost::bind(&Socket::_connectHandle, this,
+					boost::asio::placeholders::error, remoteAddr
+					)
+				);
+
+			return error::NO_ERR;
+		}
+		else
+		{
+			return error::CALL_DENIED;
+		}
+	}
+
+
+
+	int startRecv(std::size_t size)
+	{
+		_recvBuff = new char[size];
+
+		_socket->async_receive(boost::asio::buffer(_recvBuff, size),
+
+			boost::bind(&Socket::_recvHandle, this,
+				boost::asio::placeholders::error,
+				boost::asio::placeholders::bytes_transferred, size)
+
+			);
+	}
+
+
+	int sendAsunc(char* buff, int size)
+	{
+
+		_socket->async_send(boost::asio::buffer(buff, size), 
+
+			boost::bind(&Socket::_sendHandle, this,
+				boost::asio::placeholders::error,
+				boost::asio::placeholders::bytes_transferred)
+			);
+	}
+
+
+protected:
+	void connected()
+	{
+		BaseObject::write("connected");
+	}
+
+	void recvMessage(char*buff, std::size_t size)
+	{
+		BaseObject::write(buff);
+	}
+
+	void sendMessage()
+	{
+		BaseObject::write("sent");
+	}
+
+
+private:
+
+
+	void _connectHandle(const boost::system::error_code & ec, boost::asio::ip::tcp::endpoint remoteAddr)
+	{
+		BaseObject::write(ec.value());
+		BaseObject::write((char*)ec.message().c_str());
+
+		if (!_error)
+		{
+			if (ec.value())////////
+			{
+				connect(remoteAddr);
+			}
+			else
+			{
+				_status = status::CONNECTED;
+				connected();
+			}
+		}
+		else
+		{
+			_status=status::END_WORK;
+		}
+	}
+
+	
+	void _recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, std::size_t buffSize)
+	{
+		if (!_error)
+		{
+			BaseObject::write("byte recv", 0);
+			BaseObject::write("bytes_transferred");
+
+			if (!ec.value() && bytes_transferred != 0)
+			{
+				recvMessage(_recvBuff, bytes_transferred);//this block call
+
+				_socket->async_receive(boost::asio::buffer(_recvBuff, buffSize),
+
+					boost::bind(&Socket::_recvHandle, this,
+						boost::asio::placeholders::error,
+						boost::asio::placeholders::bytes_transferred,
+						buffSize)
+
+					);
+			}
+			else
+			{
+				setError(error::RECV_ERR);
+				BaseObject::write("recv err");
+				_status = status::END_WORK;
+			}
+		}
+		else
+		{
+			_status = status::END_WORK;
+		}
+	}
+
+
+	void _sendHandle(const boost::system::error_code& ec,std::size_t bytes_transferred)
+	{
+		BaseObject::write("byte send", 0);
+		BaseObject::write(bytes_transferred);
+
+		if (!ec.value() && bytes_transferred != 0)
+		{
+			sendMessage();
+		}
+		else
+		{
+			setError(error::SEND_ERR);
+			BaseObject::write("recv err");
+		}
+	}
+
+
+	int _status = status::NOT_INIT;
+	int _error = error::NO_ERR;
+	char* _recvBuff = NULL;
+
+	boost::asio::io_service* _ioService;
+	boost::asio::ip::tcp::socket* _socket;
+};
+
+
+
+
+void main()
+{
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+
+	Socket s(1);
+	s.init();
+
+
+
+	system("pause");
+}
