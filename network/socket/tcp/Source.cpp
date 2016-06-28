@@ -1,37 +1,7 @@
-#include "Header.h"
+#include "BasePool.h"
 
 using namespace std;
 
-/*
-class ss
-{
-public:
-	ss(boost::asio::io_service& _ioService) 
-		: _socket(_ioService)
-	{
-	
-	}
-
-	boost::asio::ip::tcp::socket _socket;
-};
-*/
-
-
-boost::asio::io_service _ioService;
-
-void ff()
-{
-	cout << "-----ff" << endl;
-
-	while(1)
-	{ 
-		_ioService.run();
-
-		_ioService.reset();
-		Sleep(10);
-	}
-
-}
 
 void main()
 {
@@ -79,27 +49,40 @@ void main()
 	//delete S;
 	*/
 
-	thread(ff).detach();
-	//Sleep(100);
+
+
+
+	IoService io;
+	io.startT();
+
 	
+	BasePool<BaseClient> bp;
+	bp.runExpansionT();
+
 	while (1)
 	{
-		Socket s(_ioService, true);
-		cout << "bindq=" << s.bind(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 13192)) << endl;
-		cout << "con=" << s.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 1500)) << endl;
-		cout << "wait=" << s.waitConnect(1000) << endl;
-		cout << "recvStart=" << s.startRecv(1000) << endl;
+		BaseClient* s = bp.newClient();
+		//BaseClient s(io.getIoSevice(), true);
+		cout << "bindq=" << s->bind(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 13191)) << endl;
+		cout << "con=" << s->connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 1500)) << endl;
+		cout << "wait=" << s->waitConnect(1000) << endl;
+		cout << "recvStart=" << s->startRecv(1000) << endl;
 
-		cout << "send=" << s.send("hello", 6) << endl;
+		cout << "send=" << s->send("hello", 6) << endl;
 		Sleep(1000);
 
 		
-		cout << "close=" << s.close() << endl;
+		//cout << "close=" << s->close() << endl;
 
 		cout << "-----------------"  << endl;
-		//Sleep(100);
+		bp.remove(s);
+
+		break;
+
 	}
 
+
+	io.stop();
 	system("pause");
 }
 
