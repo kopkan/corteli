@@ -128,9 +128,9 @@ protected:
 	{
 		socket->_acceptorThisSocketConnected();
 		socket->startRecv(500);
-		socket->send("Hello", 6);
+		//socket->send("Hello", 6);
 		//Sleep(10000);
-		socket->closeT();
+		//socket->closeT();
 	}
 
 	virtual void acceptError(const boost::system::error_code& ec, T* socket)

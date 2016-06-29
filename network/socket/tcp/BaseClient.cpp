@@ -280,10 +280,18 @@ void BaseClient::connected()
 
 void BaseClient::connectError(const boost::system::error_code & ec, boost::asio::ip::tcp::endpoint remoteAddr)
 {
-	_setError(error::CONNECT_ERR);
-	_status = status::END_WORK;
-	close();
-	BaseObject::write("connectErrorSignal");
+	if (ec.value() == 10061)
+	{
+		connect(remoteAddr);
+	}
+	else
+	{
+
+		_setError(error::CONNECT_ERR);
+		_status = status::END_WORK;
+		close();
+		BaseObject::write("connectErrorSignal");
+	}
 }
 
 void BaseClient::recvMessage(char*buff, std::size_t size)
