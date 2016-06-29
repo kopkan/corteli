@@ -1,4 +1,4 @@
-#include <boost/asio.hpp>
+##include <boost/asio.hpp>
 #include <boost/thread.hpp>
 using boost::asio::ip::udp;
 using boost::asio::ip::tcp;
@@ -120,60 +120,42 @@ void tcp_test() {
 
 
 
-#include "D:/Develop/VisualStudio15Project/corteli/network/socket/tcp/tcp/BasePool.h"
+#include "D:/Develop/VisualStudio15Project/corteli/network/socket/tcp/tcp/BaseAcceptor.h"
 #pragma comment(lib, "D:/Develop/VisualStudio15Project/corteli/network/socket/tcp/Release/tcp.lib")
 
 
-template<typename T>
-class serv : protected BasePool<T>
+class Client : public BaseClient
 {
 public:
-	serv(boost::asio::ip::tcp::endpoint ep) : _server(_ioService.getIoSevice(), ep)
+	Client(IoService* ioService, bool enableDebugMessage = true) : BaseClient(ioService, enableDebugMessage)
+	{};
+
+	void recvError(const boost::system::error_code & ec)
 	{
-		runExpansionT();
+		cout<<"ers="<<send("errrr", 6, 1)<<endl;//fix bind problem
+		BaseClient::recvError(ec);
 	}
 
-	void bind(boost::asio::ip::tcp::endpoint ep)
+	virtual void recvMessage(char*buff, std::size_t size)
 	{
-
+		cout << "send=" << send(buff, size) << endl;
 	}
-
-	T* nextAccept()
-	{
-		T* socket = newClient();
-
-		_server.accept(socket->getSocket());
-		socket->_acceptorThisSocketConnected();
-		socket->startRecv(500);
-
-		return socket;
-
-	}
-
-private:
-	boost::asio::ip::tcp::acceptor _server;
 };
 
 
 int main(int argc, char* argv[])
 {
 
-	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
-	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
+	SetConsoleCP(1251);// СѓСЃС‚Р°РЅРѕРІРєР° РєРѕРґРѕРІРѕР№ СЃС‚СЂР°РЅРёС†С‹ win-cp 1251 РІ РїРѕС‚РѕРє РІРІРѕРґР°
+	SetConsoleOutputCP(1251); // СѓСЃС‚Р°РЅРѕРІРєР° РєРѕРґРѕРІРѕР№ СЃС‚СЂР°РЅРёС†С‹ win-cp 1251 РІ РїРѕС‚РѕРє РІС‹РІРѕРґР°
 							  //udp_test();
-	//tcp_test();
 
-	IoService io;
-	io.startT();
-	serv<BaseClient> a({ boost::asio::ip::tcp::v4(), 1500 });
+	BaseAcceptor<Client> a(true);
+	a.bind({ boost::asio::ip::tcp::v4(), 1500 });
 
-	while (1)
-	{
-		BaseClient* s = a.nextAccept();
-		s->send("Hello", 6);
-		Sleep(100);
-		s->close();
-	}
+	a.startAccept();
+	//a.stop();
+
 
 	system("pause");
 	return 0;
@@ -320,133 +302,133 @@ int main(int argc, char* argv[])
 
 
 /*
-// Пример простого TCP – эхо сервера
+// РџСЂРёРјРµСЂ РїСЂРѕСЃС‚РѕРіРѕ TCP вЂ“ СЌС…Рѕ СЃРµСЂРІРµСЂР°
 
 #include <stdio.h>
-#include <winsock2.h>  // Wincosk2.h должен быть 
-// подключен раньше windows.h!
+#include <winsock2.h>  // Wincosk2.h РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ 
+// РїРѕРґРєР»СЋС‡РµРЅ СЂР°РЅСЊС€Рµ windows.h!
 #include <windows.h>
 
 #define MY_PORT    1500
-// Порт, который слушает сервер
+// РџРѕСЂС‚, РєРѕС‚РѕСЂС‹Р№ СЃР»СѓС€Р°РµС‚ СЃРµСЂРІРµСЂ
 
-// макрос для печати количества активных
-// пользователей 
+// РјР°РєСЂРѕСЃ РґР»СЏ РїРµС‡Р°С‚Рё РєРѕР»РёС‡РµСЃС‚РІР° Р°РєС‚РёРІРЅС‹С…
+// РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ 
 #define PRINTNUSERS if (nclients)\
   printf("%d user on-line\n",nclients);\
   else printf("No User on line\n");
 
-// прототип функции, обслуживающий
-// подключившихся пользователей
+// РїСЂРѕС‚РѕС‚РёРї С„СѓРЅРєС†РёРё, РѕР±СЃР»СѓР¶РёРІР°СЋС‰РёР№
+// РїРѕРґРєР»СЋС‡РёРІС€РёС…СЃСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№
 DWORD WINAPI SexToClient(LPVOID client_socket);
 
-// глобальная переменная – количество
-// активных пользователей 
+// РіР»РѕР±Р°Р»СЊРЅР°СЏ РїРµСЂРµРјРµРЅРЅР°СЏ вЂ“ РєРѕР»РёС‡РµСЃС‚РІРѕ
+// Р°РєС‚РёРІРЅС‹С… РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ 
 int nclients = 0;
 
 int main(int argc, char* argv[])
 {
-	char buff[1024];    // Буфер для различных нужд
+	char buff[1024];    // Р‘СѓС„РµСЂ РґР»СЏ СЂР°Р·Р»РёС‡РЅС‹С… РЅСѓР¶Рґ
 
 	printf("TCP SERVER DEMO\n");
 
-	// Шаг 1 - Инициализация Библиотеки Сокетов
-	// Т.к. возвращенная функцией информация
-	// не используется ей передается указатель на
-	// рабочий буфер, преобразуемый
-	// к указателю  на структуру WSADATA.
-	// Такой прием позволяет сэкономить одну
-	// переменную, однако, буфер должен быть не менее
-	// полкилобайта размером (структура WSADATA
-	// занимает 400 байт)
+	// РЁР°Рі 1 - РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р‘РёР±Р»РёРѕС‚РµРєРё РЎРѕРєРµС‚РѕРІ
+	// Рў.Рє. РІРѕР·РІСЂР°С‰РµРЅРЅР°СЏ С„СѓРЅРєС†РёРµР№ РёРЅС„РѕСЂРјР°С†РёСЏ
+	// РЅРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РµР№ РїРµСЂРµРґР°РµС‚СЃСЏ СѓРєР°Р·Р°С‚РµР»СЊ РЅР°
+	// СЂР°Р±РѕС‡РёР№ Р±СѓС„РµСЂ, РїСЂРµРѕР±СЂР°Р·СѓРµРјС‹Р№
+	// Рє СѓРєР°Р·Р°С‚РµР»СЋ  РЅР° СЃС‚СЂСѓРєС‚СѓСЂСѓ WSADATA.
+	// РўР°РєРѕР№ РїСЂРёРµРј РїРѕР·РІРѕР»СЏРµС‚ СЃСЌРєРѕРЅРѕРјРёС‚СЊ РѕРґРЅСѓ
+	// РїРµСЂРµРјРµРЅРЅСѓСЋ, РѕРґРЅР°РєРѕ, Р±СѓС„РµСЂ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РјРµРЅРµРµ
+	// РїРѕР»РєРёР»РѕР±Р°Р№С‚Р° СЂР°Р·РјРµСЂРѕРј (СЃС‚СЂСѓРєС‚СѓСЂР° WSADATA
+	// Р·Р°РЅРёРјР°РµС‚ 400 Р±Р°Р№С‚)
 	if (WSAStartup(0x0202, (WSADATA *)&buff[0]))
 	{
-		// Ошибка!
+		// РћС€РёР±РєР°!
 		printf("Error WSAStartup %d\n",
 			WSAGetLastError());
 		return -1;
 	}
 
-	// Шаг 2 - создание сокета
+	// РЁР°Рі 2 - СЃРѕР·РґР°РЅРёРµ СЃРѕРєРµС‚Р°
 	SOCKET mysocket;
-	// AF_INET     - сокет Интернета
-	// SOCK_STREAM  - потоковый сокет (с
-	//      установкой соединения)
-	// 0      - по умолчанию выбирается TCP протокол
+	// AF_INET     - СЃРѕРєРµС‚ РРЅС‚РµСЂРЅРµС‚Р°
+	// SOCK_STREAM  - РїРѕС‚РѕРєРѕРІС‹Р№ СЃРѕРєРµС‚ (СЃ
+	//      СѓСЃС‚Р°РЅРѕРІРєРѕР№ СЃРѕРµРґРёРЅРµРЅРёСЏ)
+	// 0      - РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РІС‹Р±РёСЂР°РµС‚СЃСЏ TCP РїСЂРѕС‚РѕРєРѕР»
 	if ((mysocket = socket(AF_INET, SOCK_STREAM, 0))<0)
 	{
-		// Ошибка!
+		// РћС€РёР±РєР°!
 		printf("Error socket %d\n", WSAGetLastError());
 		WSACleanup();
-		// Деиницилизация библиотеки Winsock
+		// Р”РµРёРЅРёС†РёР»РёР·Р°С†РёСЏ Р±РёР±Р»РёРѕС‚РµРєРё Winsock
 		return -1;
 	}
 
-	// Шаг 3 связывание сокета с локальным адресом
+	// РЁР°Рі 3 СЃРІСЏР·С‹РІР°РЅРёРµ СЃРѕРєРµС‚Р° СЃ Р»РѕРєР°Р»СЊРЅС‹Рј Р°РґСЂРµСЃРѕРј
 	sockaddr_in local_addr;
 	local_addr.sin_family = AF_INET;
 	local_addr.sin_port = htons(MY_PORT);
-	// не забываем о сетевом порядке!!!
+	// РЅРµ Р·Р°Р±С‹РІР°РµРј Рѕ СЃРµС‚РµРІРѕРј РїРѕСЂСЏРґРєРµ!!!
 	local_addr.sin_addr.s_addr = 0;
-	// сервер принимает подключения
-	// на все IP-адреса
+	// СЃРµСЂРІРµСЂ РїСЂРёРЅРёРјР°РµС‚ РїРѕРґРєР»СЋС‡РµРЅРёСЏ
+	// РЅР° РІСЃРµ IP-Р°РґСЂРµСЃР°
 
-	// вызываем bind для связывания
+	// РІС‹Р·С‹РІР°РµРј bind РґР»СЏ СЃРІСЏР·С‹РІР°РЅРёСЏ
 	if (::bind(mysocket, (sockaddr *)&local_addr,
 		sizeof(local_addr)))
 	{
-		// Ошибка
+		// РћС€РёР±РєР°
 		printf("Error bind %d\n", WSAGetLastError());
-		closesocket(mysocket);  // закрываем сокет!
+		closesocket(mysocket);  // Р·Р°РєСЂС‹РІР°РµРј СЃРѕРєРµС‚!
 		WSACleanup();
 		return -1;
 	}
 
-	// Шаг 4 ожидание подключений
-	// размер очереди – 0x100
+	// РЁР°Рі 4 РѕР¶РёРґР°РЅРёРµ РїРѕРґРєР»СЋС‡РµРЅРёР№
+	// СЂР°Р·РјРµСЂ РѕС‡РµСЂРµРґРё вЂ“ 0x100
 	if (listen(mysocket, 0x100))
 	{
-		// Ошибка
+		// РћС€РёР±РєР°
 		printf("Error listen %d\n", WSAGetLastError());
 		closesocket(mysocket);
 		WSACleanup();
 		return -1;
 	}
 
-	printf("Ожидание подключений\n");
+	printf("РћР¶РёРґР°РЅРёРµ РїРѕРґРєР»СЋС‡РµРЅРёР№\n");
 
-	// Шаг 5 извлекаем сообщение из очереди
-	SOCKET client_socket;    // сокет для клиента
-	sockaddr_in client_addr;    // адрес клиента
-								// (заполняется системой)
+	// РЁР°Рі 5 РёР·РІР»РµРєР°РµРј СЃРѕРѕР±С‰РµРЅРёРµ РёР· РѕС‡РµСЂРµРґРё
+	SOCKET client_socket;    // СЃРѕРєРµС‚ РґР»СЏ РєР»РёРµРЅС‚Р°
+	sockaddr_in client_addr;    // Р°РґСЂРµСЃ РєР»РёРµРЅС‚Р°
+								// (Р·Р°РїРѕР»РЅСЏРµС‚СЃСЏ СЃРёСЃС‚РµРјРѕР№)
 
-								// функции accept необходимо передать размер
-								// структуры
+								// С„СѓРЅРєС†РёРё accept РЅРµРѕР±С…РѕРґРёРјРѕ РїРµСЂРµРґР°С‚СЊ СЂР°Р·РјРµСЂ
+								// СЃС‚СЂСѓРєС‚СѓСЂС‹
 	int client_addr_size = sizeof(client_addr);
 
-	// цикл извлечения запросов на подключение из
-	// очереди
+	// С†РёРєР» РёР·РІР»РµС‡РµРЅРёСЏ Р·Р°РїСЂРѕСЃРѕРІ РЅР° РїРѕРґРєР»СЋС‡РµРЅРёРµ РёР·
+	// РѕС‡РµСЂРµРґРё
 	while ((client_socket = accept(mysocket, (sockaddr *)
 		&client_addr, &client_addr_size)))
 	{
-		nclients++;      // увеличиваем счетчик
-						 // подключившихся клиентов
+		nclients++;      // СѓРІРµР»РёС‡РёРІР°РµРј СЃС‡РµС‚С‡РёРє
+						 // РїРѕРґРєР»СЋС‡РёРІС€РёС…СЃСЏ РєР»РёРµРЅС‚РѕРІ
 
-						 // пытаемся получить имя хоста
+						 // РїС‹С‚Р°РµРјСЃСЏ РїРѕР»СѓС‡РёС‚СЊ РёРјСЏ С…РѕСЃС‚Р°
 		HOSTENT *hst;
 		hst = ::gethostbyaddr((char *)
 			&client_addr.sin_addr.s_addr, 4, AF_INET);
 
 
 		cout << "new" << ntohs(client_addr.sin_port) << endl;
-		// вывод сведений о клиенте
+		// РІС‹РІРѕРґ СЃРІРµРґРµРЅРёР№ Рѕ РєР»РёРµРЅС‚Рµ
 		//PRINTNUSERS
 
-			// Вызов нового потока для обслужвания клиента
-			// Да, для этого рекомендуется использовать
-			// _beginthreadex но, поскольку никаких вызов
-			// функций стандартной Си библиотеки поток не
-			// делает, можно обойтись и CreateThread
+			// Р’С‹Р·РѕРІ РЅРѕРІРѕРіРѕ РїРѕС‚РѕРєР° РґР»СЏ РѕР±СЃР»СѓР¶РІР°РЅРёСЏ РєР»РёРµРЅС‚Р°
+			// Р”Р°, РґР»СЏ СЌС‚РѕРіРѕ СЂРµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ
+			// _beginthreadex РЅРѕ, РїРѕСЃРєРѕР»СЊРєСѓ РЅРёРєР°РєРёС… РІС‹Р·РѕРІ
+			// С„СѓРЅРєС†РёР№ СЃС‚Р°РЅРґР°СЂС‚РЅРѕР№ РЎРё Р±РёР±Р»РёРѕС‚РµРєРё РїРѕС‚РѕРє РЅРµ
+			// РґРµР»Р°РµС‚, РјРѕР¶РЅРѕ РѕР±РѕР№С‚РёСЃСЊ Рё CreateThread
 			DWORD thID;
 		CreateThread(NULL, NULL, SexToClient,
 			&client_socket, NULL, &thID);
@@ -454,9 +436,9 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-// Эта функция создается в отдельном потоке и
-// обсуживает очередного подключившегося клиента
-// независимо от остальных
+// Р­С‚Р° С„СѓРЅРєС†РёСЏ СЃРѕР·РґР°РµС‚СЃСЏ РІ РѕС‚РґРµР»СЊРЅРѕРј РїРѕС‚РѕРєРµ Рё
+// РѕР±СЃСѓР¶РёРІР°РµС‚ РѕС‡РµСЂРµРґРЅРѕРіРѕ РїРѕРґРєР»СЋС‡РёРІС€РµРіРѕСЃСЏ РєР»РёРµРЅС‚Р°
+// РЅРµР·Р°РІРёСЃРёРјРѕ РѕС‚ РѕСЃС‚Р°Р»СЊРЅС‹С…
 DWORD WINAPI SexToClient(LPVOID client_socket)
 {
 	SOCKET my_sock;
@@ -467,11 +449,11 @@ DWORD WINAPI SexToClient(LPVOID client_socket)
 	
     #define sHELLO "Hello, Sailor\r\n"
 
-	// отправляем клиенту приветствие 
+	// РѕС‚РїСЂР°РІР»СЏРµРј РєР»РёРµРЅС‚Сѓ РїСЂРёРІРµС‚СЃС‚РІРёРµ 
 	//send(my_sock, sHELLO, sizeof(sHELLO), 0);
 
-	// цикл эхо-сервера: прием строки от клиента и
-	// возвращение ее клиенту
+	// С†РёРєР» СЌС…Рѕ-СЃРµСЂРІРµСЂР°: РїСЂРёРµРј СЃС‚СЂРѕРєРё РѕС‚ РєР»РёРµРЅС‚Р° Рё
+	// РІРѕР·РІСЂР°С‰РµРЅРёРµ РµРµ РєР»РёРµРЅС‚Сѓ
 
 	int R = recv(my_sock, &buff[0], sizeof(buff), 0);
 	while (R > 0)
@@ -479,15 +461,15 @@ DWORD WINAPI SexToClient(LPVOID client_socket)
 		R = recv(my_sock, &buff[0], sizeof(buff), 0);
 		send(my_sock, &buff[0], 10, 0);
 	}
-	// если мы здесь, то произошел выход из цикла по
-	// причине возращения функцией recv ошибки –
-	// соединение клиентом разорвано
-	nclients--; // уменьшаем счетчик активных клиентов
+	// РµСЃР»Рё РјС‹ Р·РґРµСЃСЊ, С‚Рѕ РїСЂРѕРёР·РѕС€РµР» РІС‹С…РѕРґ РёР· С†РёРєР»Р° РїРѕ
+	// РїСЂРёС‡РёРЅРµ РІРѕР·СЂР°С‰РµРЅРёСЏ С„СѓРЅРєС†РёРµР№ recv РѕС€РёР±РєРё вЂ“
+	// СЃРѕРµРґРёРЅРµРЅРёРµ РєР»РёРµРЅС‚РѕРј СЂР°Р·РѕСЂРІР°РЅРѕ
+	nclients--; // СѓРјРµРЅСЊС€Р°РµРј СЃС‡РµС‚С‡РёРє Р°РєС‚РёРІРЅС‹С… РєР»РёРµРЅС‚РѕРІ
 	
 	cout << "err=" << R << " "<< GetLastError() << endl;
 	
 	
-		// закрываем сокет
+		// Р·Р°РєСЂС‹РІР°РµРј СЃРѕРєРµС‚
 		closesocket(my_sock);
 	return 0;
 }
