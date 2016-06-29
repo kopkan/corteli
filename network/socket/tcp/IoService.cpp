@@ -54,3 +54,8 @@ void IoService::stop()
 		}
 	}
 }
+
+IoService::status IoService::getStatus()
+{
+	return _status;
+}

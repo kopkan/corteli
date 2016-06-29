@@ -23,6 +23,7 @@ public:
 	void startT();
 	boost::asio::io_service& getIoSevice();
 	void stop();
+	status getStatus();
 
 private:
 	status _status = status::STOPPED;

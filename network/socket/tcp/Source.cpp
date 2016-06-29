@@ -1,4 +1,4 @@
-#include "BasePool.h"
+#include "BaseAcceptor.h"
 
 using namespace std;
 
@@ -52,8 +52,8 @@ void main()
 
 
 
-	IoService io;
-	io.startT();
+	//IoService io;
+	//io.startT();
 
 	
 	BasePool<BaseClient> bp;
@@ -65,24 +65,24 @@ void main()
 		//BaseClient s(io.getIoSevice(), true);
 		cout << "bindq=" << s->bind(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 13191)) << endl;
 		cout << "con=" << s->connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 1500)) << endl;
-		cout << "wait=" << s->waitConnect(1000) << endl;
+		cout << "wait=" << s->waitConnect(10) << endl;
 		cout << "recvStart=" << s->startRecv(1000) << endl;
 
 		cout << "send=" << s->send("hello", 6) << endl;
-		Sleep(1000);
+		//Sleep(1000);
 
 		
 		//cout << "close=" << s->close() << endl;
 
+		//bp.remove(s);
 		cout << "-----------------"  << endl;
-		bp.remove(s);
 
 		break;
 
 	}
 
 
-	io.stop();
+	//io.stop();
 	system("pause");
 }
 

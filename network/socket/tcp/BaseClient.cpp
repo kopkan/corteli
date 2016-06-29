@@ -2,11 +2,13 @@
 
 
 
-BaseClient::BaseClient(boost::asio::io_service& ioService, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(ioService)
+BaseClient::BaseClient(IoService* ioService, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(ioService->getIoSevice())
 {	
+	_ioService = ioService;
 	_status = status::INITED;
 }
 
+/*
 BaseClient::BaseClient(boost::asio::ip::tcp::socket socket, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(std::move(socket))
 {
 	boost::system::error_code ec;
@@ -22,11 +24,11 @@ BaseClient::BaseClient(boost::asio::ip::tcp::socket socket, bool enableDebugMess
 		_status = status::INITED;
 	}
 }
+*/
 
 BaseClient::~BaseClient()
 {
-	//close();
-	close(1);
+	close();
 }
 
 int BaseClient::getStatus()
@@ -167,6 +169,13 @@ void BaseClient::runExpansion()
 	}
 }
 
+void BaseClient::reload()
+{
+	close();
+	_status = status::INITED;
+	_error = error::NO_ERR;
+}
+
 int BaseClient::startRecv(std::size_t size)
 {
 	if (_status >= status::CONNECTED && _status < status::RECV_STARTED && !_error)
@@ -213,10 +222,11 @@ unsigned long long BaseClient::send(char* buff, int size, int flag)
 }
 
 
-int BaseClient::close(bool noWaitEndWorkSignal)
+int BaseClient::close()
 {
 	if (_error != error::CLOSE)
 	{
+
 		_setError(error::CLOSE);
 		boost::system::error_code err;
 
@@ -225,15 +235,11 @@ int BaseClient::close(bool noWaitEndWorkSignal)
 
 		if (_status >= status::CONNECT)
 		{
-			while (_status < status::END_WORK && _status != status::CONNECTED && !noWaitEndWorkSignal)
+			while (_status < status::END_WORK && _status != status::CONNECTED && _ioService->getStatus()!=IoService::status::STOPPED)
 			{
 				BaseObject::write(_status);
 				Sleep(1);
 			}
-		}
-		else
-		{
-			BaseObject::write("QWERTYUI");
 		}
 
 
@@ -254,6 +260,19 @@ int BaseClient::close(bool noWaitEndWorkSignal)
 	}
 }
 
+int BaseClient::closeT()
+{
+	if (_error != error::CLOSE)
+	{
+		std::thread(&BaseClient::close, this).detach();
+		return error::NO_ERR;
+	}
+	else
+	{
+		return error::CALL_DENIED;
+	}
+}
+
 void BaseClient::connected()
 {
 	BaseObject::write("connectedSignal");
@@ -263,7 +282,7 @@ void BaseClient::connectError(const boost::system::error_code & ec, boost::asio:
 {
 	_setError(error::CONNECT_ERR);
 	_status = status::END_WORK;
-	close(1);
+	close();
 	BaseObject::write("connectErrorSignal");
 }
 
@@ -278,7 +297,7 @@ void BaseClient::recvError(const boost::system::error_code & ec)
 	//send("errrr", 6, 1);//fix bind problem
 	_setError(error::RECV_ERR);
 	_status = status::END_WORK;
-	close(1);
+	close();
 	BaseObject::write("recvErrorSigal");
 	BaseObject::write(ec.message());
 }
@@ -322,7 +341,7 @@ void BaseClient::_connectHandle(const boost::system::error_code & ec, boost::asi
 	else
 	{
 		_status = status::END_WORK;
-		close(1);
+		close();
 	}
 }
 
@@ -360,7 +379,7 @@ void BaseClient::_recvHandle(const boost::system::error_code & ec, std::size_t b
 	else
 	{
 		_status = status::END_WORK;
-		close(1);
+		close();
 	}
 }
 
@@ -387,3 +406,5 @@ void BaseClient::_setError(error err)
 		_error = err;
 	}
 }
+
+

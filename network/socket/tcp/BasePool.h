@@ -6,7 +6,7 @@
 
 
 template <typename T>
-class BasePool
+class BasePool : public corteli::base::BaseObject
 {
 public:
 	enum status
@@ -15,29 +15,19 @@ public:
 	};
 
 
-	BasePool() : _ioService(true)
+	BasePool(bool enableDebugMessage = true) : BaseObject(enableDebugMessage), _ioService(true)
 	{
 
 	}
 
 	~BasePool()
 	{
-		_status = status::STOP;
-		while (_status != status::STOPPED)
-		{
-			Sleep(1);
-		}
-
-
-		for (std::list<T*>::iterator it = _clientList.begin(); it != _clientList.end(); ++it)
-		{
-			remove((*it));
-		}
+		stop();
 	}
 
 	T* newClient()
 	{
-		T* client = new T(_ioService.getIoSevice());
+		T* client = new T(&_ioService);
 		_clientList.push_back(client);
 		return client;
 	}
@@ -52,9 +42,10 @@ public:
 
 	void runExpansion()
 	{
-
 		if (_status != status::RUN)
 		{
+			_status = status::RUN;
+
 			while (_status != status::STOP)
 			{
 
@@ -66,13 +57,30 @@ public:
 			}
 			_status = status::STOPPED;
 		}
-
 	}
 
 	void remove(T* client)
 	{
 		_clientList.remove(client);
 		delete client;
+	}
+
+	void stop()
+	{
+		if (_status == status::RUN)
+		{
+			_status = status::STOP;
+			while (_status != status::STOPPED)
+			{
+				Sleep(1);
+			}
+
+			while (_clientList.size())
+			{
+				std::list<T*>::iterator it = _clientList.begin();
+				remove((*it));
+			}
+		}
 	}
 
 protected:
