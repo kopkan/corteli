@@ -1,4 +1,4 @@
-#include "Socket.h"
+#include "BaseSocket.h"
 #include <map>
 
 using namespace corteli::network::socket::udp;
@@ -41,10 +41,10 @@ private:
 };
 
 
-class Amphibian : public Socket
+class Amphibian : public BaseSocket
 {
 public:
-	Amphibian(IoService * ioService, bool enableDebugMessage) :Socket(ioService, enableDebugMessage) {}
+	Amphibian(IoService * ioService, bool enableDebugMessage) :BaseSocket(ioService, enableDebugMessage) {}
 
 	unsigned long long sendTo(char* buff, int size, char* ip, unsigned short port, int flag = 0)
 	{
@@ -58,7 +58,7 @@ public:
 			Client* cl = new Client(remoteAddr);
 			clMap.insert(std::pair<boost::asio::ip::udp::endpoint, Client*>(remoteAddr, cl));
 		}
-		return Socket::sendTo(buff, size, ip, port, flag);
+		return BaseSocket::sendTo(buff, size, ip, port, flag);
 	}
 
 
@@ -108,7 +108,7 @@ void main()
 
 	IoService* io=new IoService(true);
 	Amphibian* s=new Amphibian(io, true);
-	Socket* s2 = new Socket(io, false);
+	BaseSocket* s2 = new BaseSocket(io, false);
 	s2->bind("127.0.0.1", 12345);
 	s2->startRecv(500);
 
