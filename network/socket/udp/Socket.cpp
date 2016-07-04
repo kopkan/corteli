@@ -2,16 +2,18 @@
 
 
 using namespace corteli::network::socket::udp;
+using namespace corteli::network;
 
 Socket::Socket(IoService * ioService, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(ioService->getIoSevice())
 {
 	_ioService = ioService;
-	_status = status::INITED;
+	_setStatus(status::INITED);
 }
 
 Socket::~Socket()
 {
-	close();
+	close(0, 1);
+	waitClose();
 }
 
 int Socket::getStatus()
@@ -24,14 +26,14 @@ int Socket::getError()
 	return _error;
 }
 
-int Socket::bind(boost::asio::ip::udp::endpoint localAddr)
+int Socket::bind(char* ip, unsigned short port)
 {
 	if (_status >= status::INITED && _status < status::RECV_STARTED && !_error)
 	{
 		boost::system::error_code err;
 
 		_socket.open(boost::asio::ip::udp::v4(), err);
-		_socket.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+		//_socket.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
 		if (err.value())
 		{
 			BaseObject::write(err.value());
@@ -40,7 +42,7 @@ int Socket::bind(boost::asio::ip::udp::endpoint localAddr)
 			return err.value();
 		}
 
-
+		boost::asio::ip::udp::endpoint localAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(ip), port));
 		_socket.bind(localAddr, err);
 
 		if (err.value())
@@ -51,7 +53,7 @@ int Socket::bind(boost::asio::ip::udp::endpoint localAddr)
 			return err.value();
 		}
 
-		_status = status::BOUND;
+		_setStatus(status::BOUND);
 		return error::NO_ERR;
 
 	}
@@ -66,17 +68,15 @@ int Socket::startRecv(std::size_t size)
 	if (_status >= status::BOUND && _status < status::RECV_STARTED && !_error)
 	{
 
-		_recvBuff = new char[size];
+		_recvBuff.resize(size);
+		_setStatus(status::RECV_STARTED);
 
-		_status = status::RECV_STARTED;
-
-		boost::asio::ip::udp::endpoint *_remoteAddr=new boost::asio::ip::udp::endpoint;
 		//_recvBuff и remoteAddr возможна перезапись WARNNN!!!!!
-		_socket.async_receive_from(boost::asio::buffer(_recvBuff, size), *_remoteAddr,
+		_socket.async_receive_from(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()), _remoteAddr,
 
 			boost::bind(&Socket::_recvHandle, this,
 				boost::asio::placeholders::error,
-				boost::asio::placeholders::bytes_transferred, size, *_remoteAddr)
+				boost::asio::placeholders::bytes_transferred)
 
 			);
 
@@ -89,40 +89,53 @@ int Socket::startRecv(std::size_t size)
 	}
 }
 
-unsigned long long Socket::sendTo(char * buff, int size, boost::asio::ip::udp::endpoint remoteAddr, int flag)
+unsigned long long Socket::sendTo(char * buff, int size, char* ip, unsigned short port, int flag)
 {
 	if (_status >= status::INITED && _status < status::END_WORK && !_error)
 	{
+		_countSendWaiting++;
+
+		boost::asio::ip::udp::endpoint remoteAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(ip), port));
 
 		_socket.async_send_to(boost::asio::buffer(buff, size), remoteAddr, flag,
 
 			boost::bind(&Socket::_sendHandle, this,
 				boost::asio::placeholders::error,
 				boost::asio::placeholders::bytes_transferred,
-				++_lastSentMessageId
+				++_lastSentMessageId, remoteAddr
 				)
 			);
 
 		return _lastSentMessageId;
 	}
-
-	return 0;
+	else
+	{
+		return 0;
+	}
 }
 
-int Socket::close()
+int Socket::close(bool setEndWorkStatus, bool closingFlag)
 {
+	if (setEndWorkStatus)
+	{
+		_setStatus(status::END_WORK);
+	}
+
 	if (_error != error::CLOSE)
 	{
-
+		preClosing(closingFlag);
 		_setError(error::CLOSE);
+
 		boost::system::error_code err;
 
 		_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, err);
 		_socket.close(err);
 
+
 		if (_status >= status::RECV_STARTED)
 		{
-			while (_status < status::END_WORK && _ioService->getStatus() != IoService::status::STOPPED)
+
+			while ((_countSendWaiting!=0 || _status < status::END_WORK) && _ioService->getStatus() != IoService::status::STOPPED)
 			{
 				BaseObject::write(_status);
 				Sleep(1);
@@ -130,14 +143,9 @@ int Socket::close()
 		}
 
 
-		if (_recvBuff != NULL)
-		{
-			delete _recvBuff;
-			_recvBuff = NULL;
-		}
+		_setStatus(status::CLOSED);
 
-		endWork();
-		_status = status::CLOSED;
+		afterClosing(closingFlag);
 
 		return err.value();
 	}
@@ -147,17 +155,45 @@ int Socket::close()
 	}
 }
 
-int Socket::closeT()
+int Socket::closeT(bool setEndWorkStatus, bool closingFlag)
 {
+	if (setEndWorkStatus)
+	{
+		_setStatus(status::END_WORK);
+	}
+
 	if (_error != error::CLOSE)
 	{
-		std::thread(&Socket::close, this).detach();
+		std::thread(&Socket::close, this, setEndWorkStatus, closingFlag).detach();
 		return error::NO_ERR;
 	}
 	else
 	{
 		return error::CALL_DENIED;
 	}
+}
+
+bool Socket::waitClose(time_t time)
+{
+	_countCloseWaiting++;
+
+	time_t startTime = clock();
+
+	while (clock()- startTime<time || time==0)
+	{
+		if (_status == status::CLOSED)
+		{	
+			_countCloseWaiting--;
+			return true;
+		}
+		else
+		{
+			Sleep(1);
+		}
+	}
+
+	_countCloseWaiting--;
+	return false;
 }
 
 boost::asio::ip::udp::socket& Socket::getSocket()
@@ -168,102 +204,137 @@ boost::asio::ip::udp::socket& Socket::getSocket()
 void Socket::reload()
 {
 	close();
-	_status = status::INITED;
+	waitClose();
+
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
+
+	_setStatus(status::INITED);
 	_error = error::NO_ERR;
 }
 
-void Socket::recvMessage(char * buff, std::size_t size, boost::asio::ip::udp::endpoint remoteAddr)
+bool Socket::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, boost::asio::ip::udp::endpoint remoteAddr)
+{
+	if (ec.value() != 0 || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void Socket::recvMessage(char *buff, std::size_t size, boost::asio::ip::udp::endpoint remoteAddr)
 {
 	BaseObject::write("recvSignal=", 0);
 	BaseObject::write(buff);
+	BaseObject::write(remoteAddr);
 }
 
 void Socket::recvError(const boost::system::error_code & ec, boost::asio::ip::udp::endpoint remoteAddr)
 {
 	_setError(error::RECV_ERR);
-	_status = status::END_WORK;
-	close();
+	closeT(true);///////////////////////////////////////////////////
 	BaseObject::write("recvErrorSigal");
 	BaseObject::write(ec.message());
 }
 
-void Socket::sendMessage(unsigned long long messageId)
+bool Socket::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
+{
+	if (ec.value() != 0 || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void Socket::sentMessage(unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
 {
 	BaseObject::write("sentSigal=", 0);
 	BaseObject::write(messageId);
 }
 
-void Socket::sendError(const boost::system::error_code & ec)
+void Socket::sendError(const boost::system::error_code & ec, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
 {
 	BaseObject::write("sendErrorSigal");
 	//_setError(error::SEND_ERR);
 	//close();
 }
 
-void Socket::endWork()
+void Socket::preClosing(bool closingFlag)
 {
-	BaseObject::write("endWorkSignal");
+	BaseObject::write("preClosing");
 }
 
-void Socket::_recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, std::size_t buffSize, boost::asio::ip::udp::endpoint remoteAddr)
+void Socket::afterClosing(bool closingFlag)
 {
+	BaseObject::write("afterClosing");
+}
 
+
+void Socket::_recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred)
+{
 	if (!_error)
 	{
 		BaseObject::write("byte recv", 0);
 		BaseObject::write(bytes_transferred);
-		BaseObject::write(remoteAddr);
+		BaseObject::write(_remoteAddr, 0);
 
-		if (!ec.value()
-			//&&
-			//bytes_transferred != 0
-			)
+
+		if (!recvContainsError(ec, bytes_transferred, _remoteAddr))
 		{
+			recvMessage(_recvBuff.getBuff(), bytes_transferred, _remoteAddr);//this block call
 
 
-			recvMessage(_recvBuff, bytes_transferred, remoteAddr);//this block call
+			_socket.async_receive_from(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()), _remoteAddr,
 
-			_socket.async_receive_from(boost::asio::buffer(_recvBuff, buffSize), remoteAddr,
-
-				boost::bind(&Socket::_recvHandle, this, 
+				boost::bind(&Socket::_recvHandle, this,
 					boost::asio::placeholders::error,
-					boost::asio::placeholders::bytes_transferred,
-					buffSize, remoteAddr)
+					boost::asio::placeholders::bytes_transferred)
 
 				);
 		}
 		else
 		{
 			BaseObject::write("recv err");
-			recvError(ec, remoteAddr);
+			recvError(ec, _remoteAddr);
 		}
 	}
 	else
 	{
-		_status = status::END_WORK;
-		close();
+		close(true);
 	}
 }
 
-void Socket::_sendHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId)
+void Socket::_sendHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
 {
 	BaseObject::write("byte send", 0);
-	BaseObject::write(bytes_transferred);
+	BaseObject::write(bytes_transferred, 0);
+	BaseObject::write(remoteAddr);
 
-	if (!ec.value() && bytes_transferred != 0)
+	if (!sendContainsError(ec, bytes_transferred, messageId, remoteAddr))
 	{
 		if (_status == status::INITED && !_error)
 		{
 			_status = status::BOUND;
 		}
 
-		sendMessage(messageId);
+		sentMessage(messageId, remoteAddr);
 	}
 	else
 	{
 		BaseObject::write("send err");
-		sendError(ec);
+		sendError(ec, messageId, remoteAddr);
 	}
+
+
+	_countSendWaiting--;
 }
 
 void Socket::_setError(error err)
@@ -272,4 +343,9 @@ void Socket::_setError(error err)
 	{
 		_error = err;
 	}
+}
+
+void Socket::_setStatus(status st)
+{
+	_status = st;
 }
