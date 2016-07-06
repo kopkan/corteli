@@ -1,6 +1,7 @@
 #include "BaseClient.h"
 
-
+using namespace corteli::network::socket::tcp;
+using namespace corteli::network;
 
 BaseClient::BaseClient(IoService* ioService, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(ioService->getIoSevice())
 {	
@@ -8,27 +9,14 @@ BaseClient::BaseClient(IoService* ioService, bool enableDebugMessage) : BaseObje
 	_status = status::INITED;
 }
 
-/*
-BaseClient::BaseClient(boost::asio::ip::tcp::socket socket, bool enableDebugMessage) : BaseObject(enableDebugMessage), _socket(std::move(socket))
-{
-	boost::system::error_code ec;
-
-	if (_socket.remote_endpoint(ec).port() != 0)
-	{
-		BaseObject::write("sock connecter");
-		_status = status::CONNECTED;
-	}
-	else
-	{
-		BaseObject::write("init end");
-		_status = status::INITED;
-	}
-}
-*/
-
 BaseClient::~BaseClient()
 {
-	close();
+	close(0, 1);
+	waitClose();
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
 }
 
 int BaseClient::getStatus()
@@ -41,14 +29,14 @@ int BaseClient::getError()
 	return _error;
 }
 
-int BaseClient::bind(boost::asio::ip::tcp::endpoint localAddr)
+int BaseClient::bind(corteli::network::Endpoint localEndpoint)
 {
 	if (_status >= status::INITED && _status < status::CONNECTED && !_error)
 	{
 		boost::system::error_code err;
 
 		_socket.open(boost::asio::ip::tcp::v4(), err);
-		_socket.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+		//_socket.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
 		if (err.value())
 		{
 			BaseObject::write(err.value());
@@ -57,7 +45,7 @@ int BaseClient::bind(boost::asio::ip::tcp::endpoint localAddr)
 			return err.value();
 		}
 
-
+		boost::asio::ip::tcp::endpoint localAddr(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string(localEndpoint.getCharIp()), localEndpoint.getPort()));
 		_socket.bind(localAddr, err);
 
 		if (err.value())
@@ -68,7 +56,7 @@ int BaseClient::bind(boost::asio::ip::tcp::endpoint localAddr)
 			return err.value();
 		}
 
-		_status = status::BOUND;
+		_setStatus(status::BOUND);
 		return error::NO_ERR;
 
 	}
@@ -79,17 +67,18 @@ int BaseClient::bind(boost::asio::ip::tcp::endpoint localAddr)
 }
 
 
-int BaseClient::connect(boost::asio::ip::tcp::endpoint remoteAddr)
+int BaseClient::connect(corteli::network::Endpoint remoteEndpoint)//////////////////////////////
 {
 	if (_status >= status::INITED && _status < status::CONNECTED && !_error)
 	{
-		_status = status::CONNECT;
+		_setStatus(status::CONNECT);
+
+		boost::asio::ip::tcp::endpoint remoteAddr(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::from_string(remoteEndpoint.getCharIp()), remoteEndpoint.getPort()));
+
 
 		_socket.async_connect(remoteAddr,
-
-			boost::bind(&BaseClient::_connectHandle, this,
-				boost::asio::placeholders::error, remoteAddr
-				)
+			
+			boost::bind(&BaseClient::_connectHandle, this, boost::asio::placeholders::error, remoteEndpoint)
 			);
 
 		return error::NO_ERR;
@@ -131,7 +120,7 @@ boost::asio::ip::tcp::socket& BaseClient::getSocket()
 
 void BaseClient::_acceptorThisSocketConnected()
 {
-	_status = status::CONNECTED;
+	_setStatus(status::CONNECTED);
 }
 
 unsigned long long BaseClient::getLastRecvMessageTime()
@@ -172,6 +161,13 @@ void BaseClient::runExpansion()
 void BaseClient::reload()
 {
 	close();
+	waitClose();
+
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
+
 	_status = status::INITED;
 	_error = error::NO_ERR;
 }
@@ -181,17 +177,19 @@ int BaseClient::startRecv(std::size_t size)
 	if (_status >= status::CONNECTED && _status < status::RECV_STARTED && !_error)
 	{
 
-		_recvBuff = new char[size];
+		_recvBuff.resize(size);
 
-		_status = status::RECV_STARTED;
+		_setStatus(status::RECV_STARTED);
 
-		_socket.async_receive(boost::asio::buffer(_recvBuff, size), ///////
+		_socket.async_receive(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()), ///////
 
 			boost::bind(&BaseClient::_recvHandle, this,
 				boost::asio::placeholders::error,
-				boost::asio::placeholders::bytes_transferred, size)
+				boost::asio::placeholders::bytes_transferred)
 
 			);
+
+                return error::NO_ERR;
 
 	}
 	else
@@ -201,12 +199,13 @@ int BaseClient::startRecv(std::size_t size)
 }
 
 
-unsigned long long BaseClient::send(char* buff, int size, int flag)
+unsigned long long BaseClient::send(corteli::base::container::Buffer<char> buffer, int flag)
 {
 	if (_status >= status::CONNECTED && _status < status::END_WORK && !_error)
 	{
+		_countSendWaiting++;
 
-		_socket.async_send(boost::asio::buffer(buff, size), flag,
+		_socket.async_send(boost::asio::buffer(buffer.getBuff(), buffer.getSize()), flag,
 
 			boost::bind(&BaseClient::_sendHandle, this,
 				boost::asio::placeholders::error,
@@ -222,12 +221,18 @@ unsigned long long BaseClient::send(char* buff, int size, int flag)
 }
 
 
-int BaseClient::close()
+int BaseClient::close(bool setEndWorkStatus, bool closingFlag)
 {
+	if (setEndWorkStatus)
+	{
+		_setStatus(status::END_WORK);
+	}
+
 	if (_error != error::CLOSE)
 	{
-
+		preClosing(closingFlag);
 		_setError(error::CLOSE);
+
 		boost::system::error_code err;
 
 		_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, err);
@@ -235,22 +240,16 @@ int BaseClient::close()
 
 		if (_status >= status::CONNECT)
 		{
-			while (_status < status::END_WORK && _status != status::CONNECTED && _ioService->getStatus()!=IoService::status::STOPPED)
+			while ((_countSendWaiting != 0 || _status < status::END_WORK) && _status != status::CONNECTED && _ioService->getStatus()!=IoService::status::STOPPED)
 			{
 				BaseObject::write(_status);
+				BaseObject::write(_countSendWaiting);
 				Sleep(1);
 			}
 		}
 
-
-		if (_recvBuff != NULL)
-		{
-			delete _recvBuff;
-			_recvBuff = NULL;
-		}
-
-		endWork();
-		_status = status::CLOSED;
+		_setStatus(status::CLOSED);
+		afterClosing(closingFlag);
 
 		return err.value();
 	}
@@ -260,11 +259,16 @@ int BaseClient::close()
 	}
 }
 
-int BaseClient::closeT()
+int BaseClient::closeT(bool setEndWorkStatus, bool closingFlag)
 {
+	if (setEndWorkStatus)
+	{
+		_setStatus(status::END_WORK);
+	}
+
 	if (_error != error::CLOSE)
 	{
-		std::thread(&BaseClient::close, this).detach();
+		std::thread(&BaseClient::close, this, setEndWorkStatus, closingFlag).detach();
 		return error::NO_ERR;
 	}
 	else
@@ -273,106 +277,159 @@ int BaseClient::closeT()
 	}
 }
 
-void BaseClient::connected()
+bool BaseClient::waitClose(time_t time)
+{
+	_countCloseWaiting++;
+
+	time_t startTime = clock();
+
+	while (clock() - startTime<time || time == 0)
+	{
+		if (_status == status::CLOSED)
+		{
+			_countCloseWaiting--;
+			return true;
+		}
+		else
+		{
+			Sleep(1);
+		}
+	}
+
+	_countCloseWaiting--;
+	return false;
+}
+
+bool BaseClient::connectContainsError(const boost::system::error_code & ec, corteli::network::Endpoint remoteEndpoint)
+{
+	if (ec != 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void BaseClient::connected(corteli::network::Endpoint remoteEndpoint)
 {
 	BaseObject::write("connectedSignal");
 }
 
-void BaseClient::connectError(const boost::system::error_code & ec, boost::asio::ip::tcp::endpoint remoteAddr)
+void BaseClient::connectError(const boost::system::error_code & ec, corteli::network::Endpoint remoteEndpoint)
 {
 	if (ec.value() == 10061)
 	{
-		connect(remoteAddr);
+		connect(remoteEndpoint);
 	}
 	else
 	{
-
 		_setError(error::CONNECT_ERR);
-		_status = status::END_WORK;
-		close();
+		close(true);
 		BaseObject::write("connectErrorSignal");
 	}
 }
 
-void BaseClient::recvMessage(char*buff, std::size_t size)
+bool BaseClient::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred)
+{
+	if (ec.value() != 0 || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void BaseClient::recvMessage(corteli::base::container::Buffer<char> buffer)
 {
 	BaseObject::write("recvSignal=", 0);
-	BaseObject::write(buff);
+	BaseObject::write(buffer.getBuff());
 }
 
 void BaseClient::recvError(const boost::system::error_code & ec)
 {
 	//send("errrr", 6, 1);//fix bind problem
 	_setError(error::RECV_ERR);
-	_status = status::END_WORK;
-	close();
 	BaseObject::write("recvErrorSigal");
+	closeT(true);
 	BaseObject::write(ec.message());
 }
 
-void BaseClient::sendMessage(unsigned long long messageId)
+bool BaseClient::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId)
+{
+	if (ec.value() != 0 || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void BaseClient::sentMessage(unsigned long long messageId)
 {
 
 	BaseObject::write("sentSigal=", 0);
 	BaseObject::write(messageId);
 }
 
-void BaseClient::sendError(const boost::system::error_code & ec)
+void BaseClient::sendError(const boost::system::error_code & ec, unsigned long long messageId)
 {
-	BaseObject::write("sentErrorSigal");
+	BaseObject::write("sendErrorSigal");
 	_setError(error::SEND_ERR);
 }
 
-
-void BaseClient::endWork()
+void BaseClient::preClosing(bool closingFlag)
 {
-	BaseObject::write("endWorkSignal");
+	BaseObject::write("preClosing");
 }
 
-void BaseClient::_connectHandle(const boost::system::error_code & ec, boost::asio::ip::tcp::endpoint remoteAddr)
+void BaseClient::afterClosing(bool closingFlag)
+{
+	BaseObject::write("afterClosing");
+}
+
+
+void BaseClient::_connectHandle(const boost::system::error_code & ec, corteli::network::Endpoint remoteEndpoint)
 {
 	if (!_error)
 	{
-		if (ec.value() != 0)
+		if (connectContainsError(ec, remoteEndpoint))
 		{
 			BaseObject::write(ec.value());
 			BaseObject::write((char*)ec.message().c_str());
 	
-			connectError(ec, remoteAddr);
+			connectError(ec, remoteEndpoint);
 		}
 		else
 		{
-			_status = status::CONNECTED;
-			connected();
+			_setStatus(status::CONNECTED);
+			connected(remoteEndpoint);
 		}
 	}
 	else
 	{
-		_status = status::END_WORK;
-		close();
+		close(true);
 	}
 }
 
-void BaseClient::_recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, std::size_t buffSize)
+void BaseClient::_recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred)
 {
 	if (!_error)
 	{
-		BaseObject::write("byte recv", 0);
-		BaseObject::write(bytes_transferred);
-
-		if (!ec.value()
-			//&&
-			//bytes_transferred != 0
-			)
+		if (!recvContainsError(ec, bytes_transferred))
 		{
-			recvMessage(_recvBuff, bytes_transferred);//this block call
+			recvMessage({ _recvBuff.getBuff(), bytes_transferred });//this block call
 
-			_socket.async_receive(boost::asio::buffer(_recvBuff, buffSize),
+			_socket.async_receive(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()),
 
 				boost::bind(&BaseClient::_recvHandle, this,
 					boost::asio::placeholders::error,
-					boost::asio::placeholders::bytes_transferred,
-					buffSize)
+					boost::asio::placeholders::bytes_transferred)
 				 
 				);
 
@@ -380,31 +437,33 @@ void BaseClient::_recvHandle(const boost::system::error_code & ec, std::size_t b
 		}
 		else
 		{
-			BaseObject::write("recv err");
 			recvError(ec);
 		}
 	}
 	else
 	{
-		_status = status::END_WORK;
-		close();
+		close(true);
 	}
 }
 
 void BaseClient::_sendHandle(const boost::system::error_code& ec, std::size_t bytes_transferred, unsigned long long messageId)
 {
+	/*
 	BaseObject::write("byte send", 0);
 	BaseObject::write(bytes_transferred);
+	BaseObject::write(ec);
+	*/
 
-	if (!ec.value() && bytes_transferred != 0)
+	if (!sendContainsError(ec, bytes_transferred, messageId))
 	{
-		sendMessage(messageId);
+		sentMessage(messageId);
 	}
 	else
 	{
-		sendError(ec);
-		BaseObject::write("recv err");
+		sendError(ec, messageId);
 	}
+
+	_countSendWaiting--;
 }
 
 void BaseClient::_setError(error err)
@@ -415,4 +474,7 @@ void BaseClient::_setError(error err)
 	}
 }
 
-
+void BaseClient::_setStatus(status status)
+{
+	_status = status;
+}
