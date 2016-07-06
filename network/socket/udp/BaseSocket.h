@@ -1,8 +1,8 @@
 #pragma once
 
 #include "D:\Develop\VisualStudio15Project\corteli\network\IoService\IoService\IoService.h"
-
 #include "D:\Develop\VisualStudio15Project\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+#include "D:\Develop\VisualStudio15Project\corteli\network\Endpoint\Endpoint\Endpoint.h"
 
 namespace corteli {
 	namespace network {
@@ -25,9 +25,9 @@ namespace corteli {
 					~BaseSocket();
 					int getStatus();
 					int getError();
-					int bind(char* ip, unsigned short port);
+					int bind(corteli::network::Endpoint localEndpoint);
 					int startRecv(std::size_t size);
-					unsigned long long sendTo(char* buff, int size, char* ip, unsigned short port, int flag = 0);
+					unsigned long long sendTo(corteli::base::container::Buffer<char> buffer, corteli::network::Endpoint remoteEndpoint, int flag = 0);
 					int close(bool setEndWorkStatus=false, bool closingFlag=false);
 					int closeT(bool setEndWorkStatus=false, bool closingFlag=false);
 					bool waitClose(time_t time = 0);
@@ -36,18 +36,18 @@ namespace corteli {
 					void reload();
 
 				protected:
-					virtual bool recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, boost::asio::ip::udp::endpoint remoteAddr);
-					virtual void recvMessage(char*buff, std::size_t size, boost::asio::ip::udp::endpoint remoteAddr);
-					virtual void recvError(const boost::system::error_code & ec, boost::asio::ip::udp::endpoint remoteAddr);
-					virtual bool sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr);
-					virtual void sentMessage(unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr);
-					virtual void sendError(const boost::system::error_code& ec, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr);
+					virtual bool recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, corteli::network::Endpoint remoteEndpoint);
+					virtual void recvMessage(corteli::base::container::Buffer<char> buffer, corteli::network::Endpoint remoteEndpoint);
+					virtual void recvError(const boost::system::error_code & ec, corteli::network::Endpoint remoteEndpoint);
+					virtual bool sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint);
+					virtual void sentMessage(unsigned long long messageId, corteli::network::Endpoint remoteEndpoint);
+					virtual void sendError(const boost::system::error_code& ec, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint);
 					virtual void preClosing(bool closingFlag);
 					virtual void afterClosing(bool closingFlag);
 
 				private:
 					void _recvHandle(const boost::system::error_code& ec, std::size_t bytes_transferred);
-					void _sendHandle(const boost::system::error_code& ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr);
+					void _sendHandle(const boost::system::error_code& ec, std::size_t bytes_transferred, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint);
 					void _setError(error err);
 					void _setStatus(status st);
 

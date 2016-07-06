@@ -46,10 +46,10 @@ class Amphibian : public BaseSocket
 public:
 	Amphibian(IoService * ioService, bool enableDebugMessage) :BaseSocket(ioService, enableDebugMessage) {}
 
-	unsigned long long sendTo(char* buff, int size, char* ip, unsigned short port, int flag = 0)
+	unsigned long long sendTo(corteli::base::container::Buffer<char> buffer, corteli::network::Endpoint remoteEndpoint, int flag = 0)
 	{
 
-		boost::asio::ip::udp::endpoint remoteAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(ip), port));
+		boost::asio::ip::udp::endpoint remoteAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(remoteEndpoint.getCharIp()), remoteEndpoint.getPort()));
 
 		std::map<boost::asio::ip::udp::endpoint, Client*>::iterator it= clMap.find(remoteAddr);
 
@@ -58,13 +58,16 @@ public:
 			Client* cl = new Client(remoteAddr);
 			clMap.insert(std::pair<boost::asio::ip::udp::endpoint, Client*>(remoteAddr, cl));
 		}
-		return BaseSocket::sendTo(buff, size, ip, port, flag);
+		return BaseSocket::sendTo(buffer, remoteEndpoint, flag);
 	}
 
 
 protected:
 	virtual void recvMessage(char*buff, std::size_t size, boost::asio::ip::udp::endpoint remoteAddr)
 	{
+
+
+
 	}
 	virtual void recvError(const boost::system::error_code & ec, boost::asio::ip::udp::endpoint remoteAddr)
 	{
@@ -106,20 +109,24 @@ void main()
 	SetConsoleOutputCP(1251); // установка кодовой страницы win-cp 1251 в поток вывода
 
 
-	IoService* io=new IoService(true);
-	Amphibian* s=new Amphibian(io, true);
-	BaseSocket* s2 = new BaseSocket(io, false);
-	s2->bind("127.0.0.1", 12345);
+	IoService* io = new IoService(true);
+	BaseSocket* s2 = new BaseSocket(io, true);
+	s2->bind({ "127.0.0.1", 12345 });
 	s2->startRecv(500);
 
 
+	
+	Amphibian* s = new Amphibian(io, true);
 
-	cout << "bind=" << s->bind("127.0.0.1", 55555) << endl;
+	cout << "bind=" << s->bind({ "127.0.0.1", 55555 }) << endl;
 	cout << "startRecv=" << s->startRecv(500) << endl;
-	s->sendTo("789", 4, "127.0.0.1", 12345);
-	s->sendTo("789", 4, "127.0.0.1", 12345);
+	
+	
+	s->sendTo({ "789", 4 }, { "127.0.0.1", 12345 });
+	s->sendTo({ "789", 4 }, { "127.0.0.1", 12345 });
 
-	s->sendTo("789", 4, "127.0.0.1", 5588);
+	s->sendTo({"789", 4}, { "127.0.0.1", 5588 });
+
 
 	// при delete может быть ошибка из-за sendHandle не отработав
 

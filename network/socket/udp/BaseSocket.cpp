@@ -14,6 +14,10 @@ BaseSocket::~BaseSocket()
 {
 	close(0, 1);
 	waitClose();
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
 }
 
 int BaseSocket::getStatus()
@@ -26,7 +30,7 @@ int BaseSocket::getError()
 	return _error;
 }
 
-int BaseSocket::bind(char* ip, unsigned short port)
+int BaseSocket::bind(corteli::network::Endpoint localEndpoint)
 {
 	if (_status >= status::INITED && _status < status::RECV_STARTED && !_error)
 	{
@@ -42,7 +46,7 @@ int BaseSocket::bind(char* ip, unsigned short port)
 			return err.value();
 		}
 
-		boost::asio::ip::udp::endpoint localAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(ip), port));
+		boost::asio::ip::udp::endpoint localAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(localEndpoint.getCharIp()), localEndpoint.getPort()));
 		_socket.bind(localAddr, err);
 
 		if (err.value())
@@ -89,20 +93,20 @@ int BaseSocket::startRecv(std::size_t size)
 	}
 }
 
-unsigned long long BaseSocket::sendTo(char * buff, int size, char* ip, unsigned short port, int flag)
+unsigned long long BaseSocket::sendTo(corteli::base::container::Buffer<char> buffer, corteli::network::Endpoint remoteEndpoint, int flag)
 {
 	if (_status >= status::INITED && _status < status::END_WORK && !_error)
 	{
 		_countSendWaiting++;
 
-		boost::asio::ip::udp::endpoint remoteAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(ip), port));
+		boost::asio::ip::udp::endpoint remoteAddr(boost::asio::ip::udp::endpoint(boost::asio::ip::address_v4::from_string(remoteEndpoint.getCharIp()), remoteEndpoint.getPort()));
 
-		_socket.async_send_to(boost::asio::buffer(buff, size), remoteAddr, flag,
+		_socket.async_send_to(boost::asio::buffer(buffer.getBuff(), buffer.getSize()), remoteAddr, flag,
 
 			boost::bind(&BaseSocket::_sendHandle, this,
 				boost::asio::placeholders::error,
 				boost::asio::placeholders::bytes_transferred,
-				++_lastSentMessageId, remoteAddr
+				++_lastSentMessageId, remoteEndpoint
 				)
 			);
 
@@ -215,8 +219,15 @@ void BaseSocket::reload()
 	_error = error::NO_ERR;
 }
 
-bool BaseSocket::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, boost::asio::ip::udp::endpoint remoteAddr)
+bool BaseSocket::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, corteli::network::Endpoint remoteEndpoint)
 {
+
+	BaseObject::write("byte recv", 0);
+	BaseObject::write(bytes_transferred);
+	BaseObject::write(_remoteAddr, 0);
+	BaseObject::write(ec.value(), 0);
+
+
 	if (ec.value() != 0 || bytes_transferred <= 0)
 	{
 		return true;
@@ -227,22 +238,26 @@ bool BaseSocket::recvContainsError(const boost::system::error_code & ec, std::si
 	}
 }
 
-void BaseSocket::recvMessage(char *buff, std::size_t size, boost::asio::ip::udp::endpoint remoteAddr)
+void BaseSocket::recvMessage(corteli::base::container::Buffer<char> buffer, corteli::network::Endpoint remoteEndpoint)
 {
 	BaseObject::write("recvSignal=", 0);
-	BaseObject::write(buff);
-	BaseObject::write(remoteAddr);
+	BaseObject::write(buffer.getBuff());
+	BaseObject::write(remoteEndpoint.getName(), 0);
+	BaseObject::write(remoteEndpoint.getPort());
 }
 
-void BaseSocket::recvError(const boost::system::error_code & ec, boost::asio::ip::udp::endpoint remoteAddr)
+void BaseSocket::recvError(const boost::system::error_code & ec, corteli::network::Endpoint remoteEndpoint)
 {
-	_setError(error::RECV_ERR);
-	closeT(true);///////////////////////////////////////////////////
+	if (ec.value() != 10061)
+	{
+		_setError(error::RECV_ERR);
+		closeT(true);
+	}
 	BaseObject::write("recvErrorSigal");
 	BaseObject::write(ec.message());
 }
 
-bool BaseSocket::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
+bool BaseSocket::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint)
 {
 	if (ec.value() != 0 || bytes_transferred <= 0)
 	{
@@ -254,13 +269,13 @@ bool BaseSocket::sendContainsError(const boost::system::error_code & ec, std::si
 	}
 }
 
-void BaseSocket::sentMessage(unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
+void BaseSocket::sentMessage(unsigned long long messageId, corteli::network::Endpoint remoteEndpoint)
 {
 	BaseObject::write("sentSigal=", 0);
 	BaseObject::write(messageId);
 }
 
-void BaseSocket::sendError(const boost::system::error_code & ec, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
+void BaseSocket::sendError(const boost::system::error_code & ec, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint)
 {
 	BaseObject::write("sendErrorSigal");
 	//_setError(error::SEND_ERR);
@@ -282,14 +297,11 @@ void BaseSocket::_recvHandle(const boost::system::error_code & ec, std::size_t b
 {
 	if (!_error)
 	{
-		BaseObject::write("byte recv", 0);
-		BaseObject::write(bytes_transferred);
-		BaseObject::write(_remoteAddr, 0);
+		corteli::network::Endpoint remoteEndpoint((char*)_remoteAddr.address().to_string().c_str(), _remoteAddr.port());
 
-
-		if (!recvContainsError(ec, bytes_transferred, _remoteAddr))
+		if (!recvContainsError(ec, bytes_transferred, remoteEndpoint))
 		{
-			recvMessage(_recvBuff.getBuff(), bytes_transferred, _remoteAddr);//this block call
+			recvMessage({ _recvBuff.getBuff(), bytes_transferred }, remoteEndpoint);//this block call
 
 
 			_socket.async_receive_from(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()), _remoteAddr,
@@ -302,8 +314,7 @@ void BaseSocket::_recvHandle(const boost::system::error_code & ec, std::size_t b
 		}
 		else
 		{
-			BaseObject::write("recv err");
-			recvError(ec, _remoteAddr);
+			recvError(ec, remoteEndpoint);
 		}
 	}
 	else
@@ -312,25 +323,26 @@ void BaseSocket::_recvHandle(const boost::system::error_code & ec, std::size_t b
 	}
 }
 
-void BaseSocket::_sendHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, boost::asio::ip::udp::endpoint remoteAddr)
+void BaseSocket::_sendHandle(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId, corteli::network::Endpoint remoteEndpoint)
 {
 	BaseObject::write("byte send", 0);
 	BaseObject::write(bytes_transferred, 0);
-	BaseObject::write(remoteAddr);
+	BaseObject::write(remoteEndpoint.getName(), 0);
+	BaseObject::write(remoteEndpoint.getPort(), 0);
 
-	if (!sendContainsError(ec, bytes_transferred, messageId, remoteAddr))
+	if (!sendContainsError(ec, bytes_transferred, messageId, remoteEndpoint))
 	{
 		if (_status == status::INITED && !_error)
 		{
 			_status = status::BOUND;
 		}
 
-		sentMessage(messageId, remoteAddr);
+		sentMessage(messageId, remoteEndpoint);
 	}
 	else
 	{
 		BaseObject::write("send err");
-		sendError(ec, messageId, remoteAddr);
+		sendError(ec, messageId, remoteEndpoint);
 	}
 
 
