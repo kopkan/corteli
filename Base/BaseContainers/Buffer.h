@@ -21,7 +21,17 @@ namespace corteli
 					}
 				}
 
-				Buffer(Buffer& buffer)
+				Buffer(char* data, size_t size)
+				{
+					if (size != 0)
+					{
+						_size = size;
+						_buffer = new T[_size];
+						memcpy(_buffer, data, _size);
+					}
+				}
+
+				Buffer(const Buffer& buffer)
 				{
 					if (buffer.getSize() > 0)
 					{
@@ -54,12 +64,12 @@ namespace corteli
 					_buffer = new T[_size];
 				}
 
-				T* getBuff()
+				T* getBuff() const
 				{
 					return _buffer;
 				}
 
-				size_t getSize()
+				size_t getSize() const
 				{
 					return _size;
 				}
