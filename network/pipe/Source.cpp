@@ -22,16 +22,19 @@ void main()
 	BaseClient* cl = pool.newClient();
 
 
-	cout << "connect" << cl->connectT("mypipe") << endl;
-	cout << "waitConnected=" << cl->waitConnected(1000) << endl;
-	cout << "startRecv=" << cl->startRecv(1000) << endl;
-	
 	
 	while (1)
 	{
+		cout << "connect" << cl->connectT("mypipe") << endl;
+		cout << "waitConnected=" << cl->waitConnect(1000) << endl;
+		cout << "startRecv=" << cl->startRecv(1000) << endl;
+
 		char buff[1000];
 		cin.getline(buff, 1000);
-		cout << "send=" << cl->send(buff, strlen(buff) + 1) << endl;
+		cout << "send=" << cl->send({ buff, strlen(buff) + 1 }) << endl;
+
+		Sleep(1000);
+		cl->reload();
 	}
 
 

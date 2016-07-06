@@ -3,28 +3,22 @@
 using namespace corteli::network::pipe;
 
 
-BaseClient::BaseClient(IoService* ioService, bool enabledDebugStream) : BaseObject(enabledDebugStream), _pipeStreamHandle(ioService->getIoSevice())
+BaseClient::BaseClient(corteli::network::IoService* ioService, bool enabledDebugStream) : BaseObject(enabledDebugStream), _pipeStreamHandle(ioService->getIoSevice())
 {
 	_ioService = ioService;
 	_status = status::INITED;
 }
 
-/*
-BaseClient::BaseClient(IoService* ioService, HANDLE hPipe, bool enabledDebugStream) : BaseObject(enabledDebugStream), _pipeStreamHandle(ioService->getIoSevice())
-{
-	_hPipe = hPipe;
-	_ioService = ioService;
-	_status = status::INITED;
-}
-*/
 
 BaseClient::~BaseClient()
 {
-	//BaseObject::write("destruct");
-	close();
+	close(0, 1);
+	waitClose();
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
 }
-
-
 
 int BaseClient::getStatus()
 {
@@ -47,13 +41,11 @@ unsigned long long BaseClient::getLastSentMessageId()
 }
 
 
-
-
 int BaseClient::connect(std::string pipename)
 {
 	if (_status == status::INITED && !_error)
 	{
-		_status = status::CONNECT;
+		_setStatus(status::CONNECT);
 		pipename = "\\\\.\\pipe\\" + pipename;
 
 		while (!_error)
@@ -71,7 +63,7 @@ int BaseClient::connect(std::string pipename)
 			if (_hPipe != INVALID_HANDLE_VALUE)
 			{
 				_pipeStreamHandle.assign(_hPipe);//_hPipe warning
-				_status = status::CONNECTED;
+				_setStatus(status::CONNECTED);
 				connected();
 				return error::NO_ERR;
 			}
@@ -83,7 +75,7 @@ int BaseClient::connect(std::string pipename)
 			}
 		}
 
-		_status = status::END_WORK;
+		_setStatus(status::END_WORK);
 		return error::CONNECT_ERR;
 	}
 	else
@@ -105,7 +97,7 @@ int BaseClient::connectT(std::string pipename)
 	}
 }
 
-bool BaseClient::waitConnected(time_t time)
+bool BaseClient::waitConnect(time_t time)
 {
 	time_t startTime = clock();
 
@@ -134,10 +126,14 @@ int BaseClient::startRecv(std::size_t size)
 	if (_status == status::CONNECTED && !_error)
 	{
 		_lastRecvMessageTime = clock();
-		_status = status::RECV_STARTED;
+		_setStatus(status::RECV_STARTED);
 
-		_recvBuff = new char[size];
-		_pipeStreamHandle.async_read_some(boost::asio::buffer(_recvBuff, size), boost::bind(&BaseClient::_recvHandle, this, _1, _2, size));
+		_recvBuff.resize(size);
+		_pipeStreamHandle.async_read_some(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()),
+			
+			boost::bind(&BaseClient::_recvHandle, this, _1, _2)
+			);
+
 		return error::NO_ERR;
 	}
 	else
@@ -146,11 +142,18 @@ int BaseClient::startRecv(std::size_t size)
 	}
 }
 
-unsigned long long BaseClient::send(char* buff, int size)
+unsigned long long BaseClient::send(corteli::base::container::Buffer<char> buffer)
 {
 	if (_status >= status::CONNECTED && _status<status::END_WORK && !_error)
 	{
-		_pipeStreamHandle.async_write_some(boost::asio::buffer(buff, size), boost::bind(&BaseClient::_sendHandle, this, _1, _2, ++_lastSentMessageId));
+		_countSendWaiting++;
+
+		
+		_pipeStreamHandle.async_write_some(boost::asio::buffer(buffer.getBuff(), buffer.getSize()),
+			
+			boost::bind(&BaseClient::_sendHandle, this, _1, _2, ++_lastSentMessageId)	
+			);
+
 		return _lastSentMessageId;
 	}
 	else
@@ -161,15 +164,16 @@ unsigned long long BaseClient::send(char* buff, int size)
 
 
 
-int BaseClient::close(bool setEndWorkStatus)
+int BaseClient::close(bool setEndWorkStatus, bool closingFlag)
 {
 	if (setEndWorkStatus)
 	{
-		_status = status::END_WORK;
+		_setStatus(status::END_WORK);
 	}
 
 	if (_error != error::CLOSE)
 	{
+		preClosing(closingFlag);
 		_setError(error::CLOSE);
 
 
@@ -177,17 +181,16 @@ int BaseClient::close(bool setEndWorkStatus)
 
 		if (_status >= status::CONNECT)
 		{
-			while (_status != status::END_WORK && _status != status::CONNECTED)
+			while ((_countSendWaiting != 0 || _status < status::END_WORK) && _status != status::CONNECTED && _ioService->getStatus() != IoService::status::STOPPED)
 			{
+				BaseObject::write(_status);
+				BaseObject::write(_countSendWaiting);
 				Sleep(1);
 			}
 		}
 
-		if (_recvBuff != NULL)
-		{
-			delete _recvBuff;
-			_recvBuff = NULL;
-		}
+		_setStatus(status::CLOSED);
+		afterClosing(closingFlag);
 
 		return error::NO_ERR;
 	}
@@ -195,6 +198,47 @@ int BaseClient::close(bool setEndWorkStatus)
 	{
 		return error::CALL_DENIED;
 	}
+}
+
+int BaseClient::closeT(bool setEndWorkStatus, bool closingFlag)
+{
+	if (setEndWorkStatus)
+	{
+		_setStatus(status::END_WORK);
+	}
+
+	if (_error != error::CLOSE)
+	{
+		std::thread(&BaseClient::close, this, setEndWorkStatus, closingFlag).detach();
+		return error::NO_ERR;
+	}
+	else
+	{
+		return error::CALL_DENIED;
+	}
+}
+
+bool BaseClient::waitClose(time_t time)
+{
+	_countCloseWaiting++;
+
+	time_t startTime = clock();
+
+	while (clock() - startTime<time || time == 0)
+	{
+		if (_status == status::CLOSED)
+		{
+			_countCloseWaiting--;
+			return true;
+		}
+		else
+		{
+			Sleep(1);
+		}
+	}
+
+	_countCloseWaiting--;
+	return false;
 }
 
 void BaseClient::connected()
@@ -225,17 +269,55 @@ void BaseClient::connectError(DWORD ec, std::string pipename)
 	//close();
 }
 
-void BaseClient::recvMessage(char* buff, std::size_t size)
+bool BaseClient::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred)
+{
+	//error.value() != 234)//err and err not 'more data'(234)
+
+	if ((!(ec.value() == 0 || ec.value() == 234)) || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void BaseClient::recvMessage(corteli::base::container::Buffer<char> buffer)
 {
 	BaseObject::write("recv=", 0);
-	BaseObject::write(size, 0);
+	BaseObject::write(buffer.getSize(), 0);
 	BaseObject::write(" ", 0);
-	BaseObject::write(buff);
+	BaseObject::write(buffer.getBuff());
 }
 
 void BaseClient::recvError(const boost::system::error_code & ec)
 {
-	close(true);
+	BaseObject::write("recv err==", 0);
+	BaseObject::write(ec);
+	BaseObject::write("recv err mess==", 0);
+	BaseObject::write(ec.message());
+
+
+
+	_setError(error::RECV_ERR);
+	BaseObject::write("recvErrorSigal");
+	closeT(true);
+	BaseObject::write(ec.message());
+}
+
+bool BaseClient::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId)
+{
+	//error.value() != 234)//err and err not 'more data'(234)
+
+	if ((!(ec.value() == 0 || ec.value() == 234)) || bytes_transferred <= 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 void BaseClient::sentMessage(unsigned long long messageId)
@@ -244,16 +326,28 @@ void BaseClient::sentMessage(unsigned long long messageId)
 	BaseObject::write(messageId);
 }
 
-void BaseClient::sendError(const boost::system::error_code & ec)
+void BaseClient::sendError(const boost::system::error_code & ec, unsigned long long messageId)
 {
-	close();
+	BaseObject::write("write err==", 0);
+	BaseObject::write(ec);
+	BaseObject::write("write err mess==", 0);
+	BaseObject::write(ec.message());
+
+
+	BaseObject::write("sendErrorSigal");
+	_setError(error::SEND_ERR);
+	closeT(true);
 }
 
-void BaseClient::endWork()
+void BaseClient::preClosing(bool closingFlag)
 {
-	BaseObject::write("BasePipeClient endWork");
+	BaseObject::write("preClosing");
 }
 
+void BaseClient::afterClosing(bool closingFlag)
+{
+	BaseObject::write("afterClosing");
+}
 
 void BaseClient::connectExpansion()
 {
@@ -280,64 +374,64 @@ void BaseClient::runExpansion()
 	}
 }
 
+void BaseClient::reload()
+{
+	close();
+	waitClose();
+
+	while (_countCloseWaiting)
+	{
+		Sleep(1);
+	}
+
+	_status = status::INITED;
+	_error = error::NO_ERR;
+}
+
 void corteli::network::pipe::BaseClient::_acceptorSetPipeHandle(HANDLE pipe)
 {
 	_pipeStreamHandle.assign(pipe);
-	_status = status::CONNECTED;
+
+	_setStatus(status::CONNECTED);
 }
 
-void BaseClient::_recvHandle(const boost::system::error_code& error, std::size_t bytes_transferred, std::size_t buffSize)
+void BaseClient::_recvHandle(const boost::system::error_code& error, std::size_t bytes_transferred)
 {
 	if (!_error)
 	{
-		if ((error.value() != 0 && error.value() != 234)//err and err not 'more data'(234)
-			)
+		if (recvContainsError(error, bytes_transferred))//err and err not 'more data'(234)
 		{
-			BaseObject::write("recv err==", 0);
-			BaseObject::write(error);
-			BaseObject::write("recv err mess==", 0);
-			BaseObject::write(error.message());
-
 			recvError(error);
-			return;
 		}
 		else {
 			_lastRecvMessageTime = clock();
 
-			recvMessage(_recvBuff, bytes_transferred);
+			recvMessage({ _recvBuff.getBuff(), bytes_transferred });
 
 			_pipeStreamHandle.async_read_some(
-				boost::asio::buffer(_recvBuff, buffSize),
-				boost::bind(&BaseClient::_recvHandle, this, _1, _2, buffSize)
+				boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()),
+				boost::bind(&BaseClient::_recvHandle, this, _1, _2)
 				);
 		}
 	}
 	else
 	{
-		_status = status::END_WORK;
+		_setStatus(status::END_WORK);
 	}
 }
 
 void BaseClient::_sendHandle(const boost::system::error_code& error, std::size_t bytes_transferred, unsigned long long writeMessageId)
 {
-	if (!_error)
+
+	if (sendContainsError(error, bytes_transferred, writeMessageId))
 	{
-		if ((error.value() != 0 && error.value() != 234)//err and err not 'more data'(234)
-			)
-		{
-			BaseObject::write("write err==", 0);
-			BaseObject::write(error);
-			BaseObject::write("write err mess==", 0);
-			BaseObject::write(error.message());
-
-			sendError(error);
-
-			return;
-		}
-		else {
-			sentMessage(writeMessageId);
-		}
+		sendError(error, writeMessageId);
 	}
+	else {
+		sentMessage(writeMessageId);
+	}
+
+	_countSendWaiting--;
 }
 
 void BaseClient::_setError(error err)
@@ -346,4 +440,9 @@ void BaseClient::_setError(error err)
 	{
 		_error = err;
 	}
+}
+
+void BaseClient::_setStatus(status status)
+{
+	_status = status;
 }

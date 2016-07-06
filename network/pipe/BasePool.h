@@ -2,7 +2,6 @@
 
 
 #include "BaseClient.h"
-#include "IoService.h"
 
 namespace corteli {
 	namespace network {
@@ -87,7 +86,7 @@ namespace corteli {
 				}
 
 			protected:
-				IoService _ioService;
+				corteli::network::IoService _ioService;
 				std::list<T*> _clientList;
 
 
