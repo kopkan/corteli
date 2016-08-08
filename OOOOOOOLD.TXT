@@ -1,0 +1,770 @@
+/*
+#include <boost/asio.hpp>
+#include <boost/thread.hpp>
+
+
+#include "BaseAcceptor.h"
+
+using namespace corteli::network::pipe;
+using namespace std;
+
+*/
+
+#include <boost/asio.hpp>
+#include <boost/thread.hpp>
+
+#include <boost/container/list.hpp>
+#include <boost/container/slist.hpp>
+#include <boost/container/deque.hpp>
+
+#include <boost/container/map.hpp>
+
+#include <thread>
+
+#include <mutex>
+#include <atomic>
+#include <list>
+#include <forward_list>
+
+
+
+
+using namespace std;
+
+#include <queue>
+#include <boost/bind.hpp>
+#include <boost/thread.hpp>
+
+#include <tbb/tbb.h>
+#pragma comment(lib, "tbb/tbb.lib")
+
+
+class MutatedSemaphore
+{
+public:
+	explicit MutatedSemaphore(unsigned int initial_count = 0) :
+		count_(initial_count)
+	{
+	}
+
+	unsigned int getCount()
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		return count_;
+	}
+
+	void addCount(unsigned int count = 1)
+	{
+		//boost::lock_guard<boost::mutex> lock(mutex_);
+		count_ += count;
+		condition_.notify_one();
+	}
+
+	void removeCount(unsigned int count = 1)
+	{
+		//boost::lock_guard<boost::mutex> lock(mutex_);
+		if (count > count_)
+		{
+			count_ = 0;
+		}
+		else
+		{
+			count_ -= count;
+		}
+	}
+
+	void wait(bool removeCount=false)
+	{
+		boost::unique_lock<boost::mutex> lock(mutex_);
+		while (count_ == 0)
+		{
+			condition_.wait(lock);
+		}
+		if (removeCount)
+		{
+			--count_;
+		}
+	}
+
+private:
+	unsigned int count_;
+	boost::mutex mutex_;
+	tbb::spin_mutex spin_;
+
+	boost::condition_variable condition_;
+};
+
+
+
+
+
+
+template <typename T>
+class TaskAgentQueueList
+{
+public:
+	void push(T val)
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		list_.push_back(val);
+	}
+
+	void push(T val, size_t number)
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		for (int i = 0; i < number; ++i)
+		{
+			list_.push_back(val);
+		}
+	}
+
+	T pop()
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		if (list_.size() > 0)
+		{
+			T val = list_.front();
+			list_.pop_front();
+
+			return val;
+		}
+		else
+		{
+			return NULL;
+		}
+	}
+
+	void remove(T val)
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		list_.remove(val);
+	}
+
+	void wait() {}
+
+private:
+	boost::container::list<T> list_;
+	boost::mutex mutex_;
+};
+
+
+
+
+class TaskAgent
+{
+
+public:
+	~TaskAgent()
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+		cout << "~Tasks()" << endl;
+		if (taskAgentQueueList_ != NULL)
+		{
+			taskAgentQueueList_->remove(this);
+		}
+
+	}
+
+	void setTaskAgentQueueList(TaskAgentQueueList<TaskAgent*>* taskAgentQueueList)
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+
+		if (taskAgentQueueList_ != NULL)
+		{
+			taskAgentQueueList_->remove(this);
+		}
+
+		taskAgentQueueList_ = taskAgentQueueList;
+
+		if (taskAgentQueueList_ != NULL)
+		{
+			taskAgentQueueList_->push(this, tasks_.size());
+		}
+
+	}
+
+	template <typename T>
+	void push(T f)
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+		//cout << "push" << endl;
+		tasks_.push_back(boost::function< void() >(f));
+
+		if (taskAgentQueueList_ != NULL)
+		{
+			taskAgentQueueList_->push(this);
+		}
+	}
+
+	boost::function< void() >pop()
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+
+		if (tasks_.size()>0)
+		{
+			boost::function< void() >task = tasks_.front();
+			tasks_.pop_front();
+
+			return task;
+		}
+		else
+		{
+			return NULL;
+		}
+	}
+
+	size_t getSize()
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+		return tasks_.size();
+	}
+
+private:
+
+	tbb::spin_mutex spin_;
+	boost::container::deque< boost::function< void() > >tasks_;
+
+	TaskAgentQueueList<TaskAgent*>* taskAgentQueueList_ = NULL;
+};
+
+class TaskWorkThread
+{
+public:
+	TaskWorkThread() : thread_(&TaskWorkThread::work, this) {}
+
+	~TaskWorkThread()
+	{
+		boost::lock_guard< tbb::spin_mutex > lock(spin_);
+		cout << "~Thread()" << endl;
+		run_ = false;
+		//mutedSemaphore_.addCount();
+		thread_.join();
+	}
+
+
+	TaskAgentQueueList<TaskAgent*> taskAgentQueueList_;
+
+private:
+	void work()
+	{
+		while (run_)
+		{
+			//mutedSemaphore_.wait();
+
+			TaskAgent* TA = taskAgentQueueList_.pop();
+
+			if (TA != NULL)
+			{
+				boost::function< void() > task = TA->pop();
+
+				if (task != NULL)
+				{
+					task();
+				}
+			}
+
+		}
+	}
+
+	tbb::spin_mutex spin_;
+	volatile bool run_ = true;
+	boost::thread thread_;
+};
+
+class TaskControl
+{
+public:
+
+
+private:
+	void add(TaskAgent* taskAgent)
+	{
+
+	}
+
+	void remove(TaskAgent* taskAgent)
+	{
+		//this->semaphore_ = tasks.semaphore_;
+	}
+
+	void signal(TaskAgent* taskAgent)
+	{
+
+	}
+
+	TaskWorkThread workThread_;
+};
+
+
+
+#include "StandardClient.h"
+#include "BasePool.h"
+
+using namespace corteli::network::pipe;
+
+
+
+char buff[1000000];
+
+int timeS = 0;
+int byteall=0;
+class CorteliClient : public corteli::network::pipe::BaseClient
+{
+public:
+	CorteliClient(corteli::network::IoService* ioService, bool enabledDebugStream) : BaseClient(ioService, enabledDebugStream)
+	{
+		this->setRecvBuffSize(1000000);
+	}
+
+protected:
+
+	virtual void sentMessage(unsigned long long messageId)
+	{
+		
+	}
+
+	virtual void recvMessage(corteli::base::container::Buffer<char> buffer)
+	{
+		//cout<< buffer.getSize()<<endl;
+
+		byteall += buffer.getSize();
+
+		if (clock() - timeS > 1000)
+		{
+			cout << byteall / 1024 / 1024 <<endl;
+			byteall = 0;
+			timeS = clock();
+		}
+
+		this->send({ buff, 200000 });
+
+
+		//send(buffer);
+	}
+
+};
+
+
+
+
+int t1, t2, t3;
+
+
+int I = 0;
+int userCount = 10000;
+int messageInSecond = 1000;
+
+int EndVal = messageInSecond * userCount;
+
+void myff()
+{
+	//cout << "myff" << endl;
+
+	I++;
+
+	if(I == EndVal)
+	{ 
+		t3 = clock();
+		cout <<"FULL="<< t3 - t1 <<' '<< I << endl;
+	}
+}
+
+/*
+template <typename T>
+struct MyBox
+{
+	T val = NULL;
+	MyBox* allBack = NULL;
+	MyBox* localBack = NULL;
+	MyBox* localFront = NULL;
+};
+
+template <typename T>
+class MyList 
+{
+public:
+	MyList()
+	{
+		_array = new MyBox<T>[10000000];
+		for (int i = 0; i < 10000000; ++i)
+		{
+			_freeBox.push_back(&_array[i]);
+		}
+	}
+
+	~MyList()
+	{
+		delete [] _array;
+	}
+
+	MyBox<T>* addUser()
+	{
+		MyBox<T>* box = _freeBox.front();
+		_freeBox.pop_front();
+
+		{
+			box->allBack = NULL;
+			box->localBack = NULL;
+			box->localFront = NULL;
+		}
+		return box;
+	}
+
+	void push(MyBox<T>* user, T val)
+	{
+		MyBox<T>* box = _freeBox.front();
+		_freeBox.pop_front();
+
+		box->localFront = user;
+		user->localBack = box;
+		box->val = val;
+		_back->allBack = box;
+	}
+
+
+
+
+private:
+	MyBox<T>* _array;
+	boost::container::deque<MyBox<T>*> _freeBox;
+
+	MyBox<T>* _front = NULL;
+	MyBox<T>* _back = NULL;
+};
+*/
+
+/*
+template <typename T>
+struct MiniList
+{
+	typename boost::container::list<T>::iterator _back;
+	typename boost::container::list<T>::iterator _front=NULL;
+};
+
+template <typename T>
+struct MyBox
+{
+	MyBox(MiniList<MyBox<T>>* miniList, T& val)
+	{
+		_LIST = miniList;
+		_val = val;
+	}
+
+	MyBox(const MyBox& myBox)
+	{
+		//_front = myBox._front;
+		_val = myBox._val;
+		_LIST = myBox._LIST;
+	}
+
+	T _val;
+	typename boost::container::list<MyBox<T>>::iterator* _back;
+	MiniList<MyBox<T>>* _LIST;
+};
+
+template <typename T>
+class MyList 
+{
+public:
+	MiniList<MyBox<T>>* addUser()
+	{
+		return new MiniList<MyBox<T>>;
+	}
+
+	void push(MiniList<MyBox<T>>* USER, T val)
+	{
+		MyBox box;
+		_list.push_back(box);
+
+		*(USER->_back)._back = _list.back();
+		USER->_back = _list.back();
+		if (USER->_front==NULL)
+		{
+			USER->_front=_list.back()
+		}
+
+	}
+
+	T pop()
+	{
+		T val = (*_list.front())._val;
+
+		(*_list.front())._LIST->front = (*_list.front()).back;
+
+		_list.pop_back();
+
+
+
+
+		return val;
+	}
+
+
+	boost::container::list<MyBox<T>> _list;
+};
+*/
+
+#define bc boost::container
+#define tbc typename boost::container
+
+
+
+
+#include <boost/container/list.hpp>
+#include <boost/container/deque.hpp>
+template <typename T>
+class MyBox
+{
+public:
+	MyBox(bc::deque<tbc::list<MyBox<T>>::iterator>* deque, T& val)
+	{
+		_deque = deque;
+		_val = val;
+	}
+
+	MyBox(const MyBox& myBox)
+	{
+		_val = myBox._val;
+		_deque = myBox._deque;
+	}
+
+//private:
+	T _val;
+	bc::deque<tbc::list<MyBox<T>>::iterator>* _deque;
+};
+
+template<typename T>
+class MyList
+{
+public:
+	bc::deque<tbc::list<MyBox<T>>::iterator>* addUser()
+	{
+		return new bc::deque<tbc::list<MyBox<T>>::iterator>;
+	}
+
+	void removeUser(bc::deque<tbc::list<MyBox<T>>::iterator>* user)
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_sp);	
+		for (int i = 0; i < user->size(); ++i)
+		{
+			_list.erase(user->front());
+			user->pop_front();
+		}
+	}
+
+	void push(bc::deque<tbc::list<MyBox<T>>::iterator>* user, T&& val)
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_sp);
+		MyBox<T> box(user, val);
+		_list.push_back(box);
+
+		user->push_back(--_list.end());
+
+		sem.addCount();
+	}
+
+	T front()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_sp);
+
+		T val = _list.front()._val;
+		return val;
+	}
+
+	bool empty()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_sp);
+		return _list.empty();
+	}
+
+	T pop()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_sp);
+		T val = _list.front()._val;
+
+		_list.front()._deque->pop_front();
+		_list.pop_front();
+
+		sem.removeCount();
+
+		return val;
+	}
+
+
+private:
+	bc::list<MyBox<T>> _list;
+
+	MutatedSemaphore sem;
+
+	tbb::spin_mutex _sp;
+};
+
+
+int myNum = 0;
+void qwe()
+{
+	myNum++;
+	if (myNum == 10000000)
+	{
+		cout << clock() << endl;
+	}
+}
+
+
+MyList<boost::function<void()>> ML;
+
+void fft()
+{
+	while (1)
+	{
+		if (!ML.empty())
+		{
+			try
+			{
+				boost::function<void()> F = ML.front();
+				F();
+				ML.pop();
+			}
+			catch (...)
+			{
+				cout << "ERR" << endl;
+			}
+		}
+	}
+}
+
+
+void main()
+{
+
+	int t1 = clock();
+
+
+	boost::thread(fft).detach();
+	auto user1 = ML.addUser();
+
+	tbb::spin_mutex sp;
+
+
+	for (int i = 0; i < 10000000; ++i)
+	{
+		ML.push(user1, &qwe);
+		//boost::function<void()> F = ML.front();
+		//F();
+		//ML.pop();
+	}
+	//ML.removeUser(user1);
+
+	int t2 = clock();
+
+	cout << t2 - t1<<endl;
+
+	//cout << ML.pop() << endl;
+	//cout << (*user1->back())._val;
+	cout << user1->size()<<endl;
+
+
+	system("pause");
+	
+	
+	TaskWorkThread TWT;
+	TaskAgent TA;
+
+
+	TaskAgent TA2;
+	for (int i = 0; i < userCount; ++i)
+	{
+		//TWT.add(&TA2);
+	}
+
+	t1 = clock();
+
+	//TWT.add(&TA);
+	TA.setTaskAgentQueueList(&TWT.taskAgentQueueList_);
+
+	for (int i = 0; i < EndVal; ++i)
+	{
+		TA.push(&myff);
+	}
+	//TA.setTaskAgentQueueList(0);
+
+
+	t2 = clock();
+	cout << "START=" << t2 - t1 << endl;
+	
+
+	system("pause");
+	
+	
+}
+
+
+/*
+int main()
+{
+
+SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+SetConsoleOutputCP(1251);
+
+BasePool<CorteliClient> *pool = new BasePool<CorteliClient>;
+pool->runExpansionT(1);/////////////////////////////0000000000000000
+
+BaseClient* cloo = pool->newClient();
+cloo->connect("mypipe");
+
+
+Sleep(1000);
+cloo->send({ "hi",3 });
+
+system("pause");
+}
+*/
+
+
+/*
+#include "StandardClient.h"
+
+
+class CorteliClient : public corteli::network::pipe::StandardClient
+{
+public:
+CorteliClient(corteli::network::IoService* ioService, bool enabledDebugStream) : StandardClient(ioService, enabledDebugStream)
+{
+//setWaitConnectTime(1000);
+//setWaitConnectTime(1);
+//setWaitintMessageTime(1000);
+setReconnectFlag(true);
+}
+
+protected:
+
+
+//virtual void recvMessage(corteli::base::container::Buffer<char> buffer) {}
+
+
+virtual void connected()
+{
+cout<<"SEND=========================="<<send({ "Hello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOK", 1068 })<<endl;
+//close();
+//cout << "connected CLOSE SEND";
+}
+
+virtual void afterReload()
+{
+connect("mypipe");
+}
+
+public:
+void runExpansion()
+{
+cout << getStatus() << ' ' << getError() <<' '<< this << endl;
+StandardClient::runExpansion();
+}
+
+};
+*/
+
+
+//volatile 
+//boost::detail::spinlock spin;
+//std::lock_guard<boost::detail::spinlock> guard(spin);
