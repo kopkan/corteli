@@ -18,6 +18,7 @@ using namespace std;
 #include <boost/container/deque.hpp>
 
 #include <boost/container/map.hpp>
+#include <boost/container/vector.hpp>
 
 #include <thread>
 
@@ -36,7 +37,6 @@ using namespace std;
 #include <boost/thread.hpp>
 
 #include <tbb/tbb.h>
-#pragma comment(lib, "tbb/tbb.lib")
 
 
 class MutatedSemaphore
@@ -55,14 +55,14 @@ public:
 
 	void addCount(unsigned int count = 1)
 	{
-		//boost::lock_guard<boost::mutex> lock(mutex_);
+		boost::lock_guard<boost::mutex> lock(mutex_);
 		count_ += count;
 		condition_.notify_one();
 	}
 
 	void removeCount(unsigned int count = 1)
 	{
-		//boost::lock_guard<boost::mutex> lock(mutex_);
+		boost::lock_guard<boost::mutex> lock(mutex_);
 		if (count > count_)
 		{
 			count_ = 0;
@@ -345,30 +345,6 @@ protected:
 };
 
 
-
-
-int t1, t2, t3;
-
-
-int I = 0;
-int userCount = 10000;
-int messageInSecond = 1000;
-
-int EndVal = messageInSecond * userCount;
-
-void myff()
-{
-	//cout << "myff" << endl;
-
-	I++;
-
-	if(I == EndVal)
-	{ 
-		t3 = clock();
-		cout <<"FULL="<< t3 - t1 <<' '<< I << endl;
-	}
-}
-
 /*
 template <typename T>
 struct MyBox
@@ -504,198 +480,1534 @@ public:
 };
 */
 
-#define bc boost::container
-#define tbc typename boost::container
 
+#define BOOST_CONTAINER
 
-
+#ifdef BOOST_CONTAINER
 
 #include <boost/container/list.hpp>
 #include <boost/container/deque.hpp>
+
+#define LIST boost::container::list
+#define T_LIST typename boost::container::list
+
+#define DEQUE boost::container::deque
+#define T_DEQUE typename boost::container::deque
+
+#else
+
+#include <list>
+#include <deque>
+
+#define LIST std::list
+#define T_LIST typename std::list
+
+#define DEQUE std::deque
+#define T_DEQUE typename std::deque
+
+#endif
+
+
+
+/*
+template <typename T>
+class MyBox;
+
+template <typename T>
+class ListUser
+{
+public:
+	size_t size()
+	{
+		return _deque.size();
+	}
+
+	T_LIST<MyBox<T>>::iterator front()
+	{
+		return _deque.front();
+	}
+
+	void pop_back()
+	{
+		return _deque.pop_back();
+	}
+
+	void pop_front()
+	{
+		return _deque.pop_front();
+	}
+
+	void push_back(T_LIST<MyBox<T>>::iterator& val)
+	{
+		return _deque.push_back(val);
+	}
+
+	DEQUE<T_LIST<MyBox<T>>::iterator> _deque;
+	T_LIST<ListUser<T>*>::iterator _positionInUserList;//position in list<ListUser>
+};
+
 template <typename T>
 class MyBox
 {
 public:
-	MyBox(bc::deque<tbc::list<MyBox<T>>::iterator>* deque, T& val)
+	MyBox(ListUser<T>* user, T& val)
 	{
-		_deque = deque;
+		_user = user;
 		_val = val;
 	}
 
 	MyBox(const MyBox& myBox)
 	{
+		_user = myBox._user;
 		_val = myBox._val;
-		_deque = myBox._deque;
 	}
 
 //private:
+	ListUser<T>* _user;
 	T _val;
-	bc::deque<tbc::list<MyBox<T>>::iterator>* _deque;
 };
 
 template<typename T>
 class MyList
 {
 public:
-	bc::deque<tbc::list<MyBox<T>>::iterator>* addUser()
+	~MyList()
 	{
-		return new bc::deque<tbc::list<MyBox<T>>::iterator>;
+		for (auto i : _userList)
+		{
+			delete i;
+		}
 	}
 
-	void removeUser(bc::deque<tbc::list<MyBox<T>>::iterator>* user)
+	ListUser<T>* addUser()
 	{
-		boost::lock_guard<tbb::spin_mutex> l(_sp);	
-		for (int i = 0; i < user->size(); ++i)
+		ListUser<T>* listUser = new ListUser<T>;
+		_userList.push_back(listUser);
+		listUser->_positionInUserList = (--_userList.end());
+
+		return listUser;
+	}
+
+	void removeUser(ListUser<T>* user)
+	{
+		size_t size= user->size();
+		for (size_t i = 0; i < size; ++i)
 		{
 			_list.erase(user->front());
 			user->pop_front();
 		}
+
+		_userList.erase(user->_positionInUserList);
+		delete user;
 	}
 
-	void push(bc::deque<tbc::list<MyBox<T>>::iterator>* user, T&& val)
+	void push(ListUser<T>* user, T val)
 	{
-		boost::lock_guard<tbb::spin_mutex> l(_sp);
 		MyBox<T> box(user, val);
+
 		_list.push_back(box);
 
 		user->push_back(--_list.end());
 
-		sem.addCount();
 	}
 
-	T front()
+	/*
+	bool front(T* val)
 	{
-		boost::lock_guard<tbb::spin_mutex> l(_sp);
-
-		T val = _list.front()._val;
-		return val;
+		if (!_list.empty())
+		{
+			*val = _list.front()._val;
+			return true;
+		}
+		else
+		{
+			return false;
+		}
 	}
 
 	bool empty()
 	{
-		boost::lock_guard<tbb::spin_mutex> l(_sp);
 		return _list.empty();
 	}
 
-	T pop()
+	bool pop()
 	{
-		boost::lock_guard<tbb::spin_mutex> l(_sp);
-		T val = _list.front()._val;
+		if (!_list.empty())
+		{
+			_list.front()._deque->pop_front();
+			_list.pop_front();
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+	///
 
-		_list.front()._deque->pop_front();
-		_list.pop_front();
+	bool pop(T* val)
+	{
+		if (!_list.empty())
+		{
+			*val = _list.front()._val;
+			_list.front()._user->pop_front();
+			_list.pop_front();
 
-		sem.removeCount();
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+
+private:
+	LIST<MyBox<T>> _list;
+	LIST<ListUser<T>*> _userList;
+};
+*/
+
+
+template<typename T>
+class FlipArray
+{
+public:
+	FlipArray(int size)
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		_size = size;
+		_arr = new T[_size];
+	}
+
+	~FlipArray()
+	{
+		delete[] _arr;
+	}
+
+	int push()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		++_front;
+		if (_front >= _size)
+		{
+			_front = 0;
+		}
+
+		return _front;
+	}
+
+	int pop()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		++_back;
+		if (_back >= _size)
+		{
+			_back = 0;
+		}
+
+		return _back;
+	}
+
+	T* get(int i)
+	{
+		return &_arr[i];
+	}
+
+private:
+	tbb::spin_mutex _spin;
+
+	int _front = -1;
+	int _back = -1;
+
+	T* _arr;
+	int _size;
+};
+
+class LockedMutex
+{
+public:
+	LockedMutex()
+	{
+		mutex.lock();
+	}
+	boost::mutex mutex;
+};
+
+class FairMutex
+{
+public:
+	FairMutex(size_t maxQueue=10) : _flipArr(maxQueue)
+	{
+		_flipArr.pop();
+		_flipArr.get(0)->mutex.unlock();
+	}
+
+	void lock()
+	{
+		int i = _flipArr.push();
+
+		//cout << "l"<< i << endl;
+
+		_flipArr.get(i)->mutex.lock();
+	}
+
+	void unlock()
+	{
+		int i = _flipArr.pop();
+
+		//cout << "u"<<i << endl;
+
+		_flipArr.get(i)->mutex.unlock();
+	}
+
+private:
+	FlipArray<LockedMutex> _flipArr;
+};
+
+class FairMutexV2
+{
+public:
+	FairMutexV2()
+	{
+	}
+
+	void lock()
+	{
+		_m.lock();
+
+		_queue.push_back(boost::this_thread::get_id());
+		while (boost::this_thread::get_id() != _queue.front())
+		{
+			_con.wait(_m);
+		}
+
+		_mainMutex.lock();
+
+		_m.unlock();
+	}
+
+	void unlock()
+	{
+		_m.lock();
+		_queue.pop_front();
+		_con.notify_all();
+
+		_mainMutex.unlock();
+
+		_m.unlock();
+	}
+
+private:
+
+	tbb::spin_mutex _m;
+	boost::condition_variable_any _con;
+	boost::container::deque<boost::thread::id> _queue;
+	boost::mutex _mainMutex;
+};
+
+class FairMutexV3
+{
+public:
+
+	void lock()
+	{
+		_m.lock();
+
+		_queue.push_back(boost::this_thread::get_id());
+		while (boost::this_thread::get_id() != _queue.front())
+		{
+			_m.unlock();
+			boost::this_thread::yield();
+			_m.lock();
+		}
+
+		_mainMutex.lock();
+
+		_m.unlock();
+	}
+
+	void unlock()
+	{
+		_m.lock();
+		_queue.pop_front();
+		_mainMutex.unlock();
+		_m.unlock();
+	}
+
+private:
+
+	tbb::spin_mutex _m;
+	boost::container::deque<boost::thread::id> _queue;
+	boost::mutex _mainMutex;
+};
+
+template <typename T>
+class Allocator
+{
+public:
+	Allocator(size_t allocatedBlockSize = 10000, size_t startAllotteBlockSize=0)
+	{
+		_allocatedBlockSize = allocatedBlockSize;
+		for (int i = 0; i < startAllotteBlockSize; ++i)
+		{
+			allocate();
+		}
+	}
+
+	~Allocator()
+	{
+		for (auto i : _arrayBox)
+		{
+			delete i;
+		}
+	}
+
+	void allocate()
+	{
+		T* newArrayBox = new T[_allocatedBlockSize];
+		_arrayBox.push_back(newArrayBox);
+
+		for (size_t i = 0; i < _allocatedBlockSize; i++)
+		{
+			_freeBox.push_back(&newArrayBox[i]);
+		}
+
+		_allAllotteSize += _allocatedBlockSize;
+	}
+
+	void setAllocateBlockSize(size_t allocatedBlockSize = 10000)
+	{
+		_allocatedBlockSize = allocatedBlockSize;
+	}
+
+	size_t getAllocateBlockSize()
+	{
+		return _allocatedBlockSize;
+	}
+
+	size_t getallotteSize()
+	{
+		return _allAllotteSize;
+	}
+
+	T* popBox()
+	{
+		if (_freeBox.empty()) 
+		{
+			allocate();
+		}
+
+		T* box = _freeBox.front();
+		_freeBox.pop_front();
+		return box;
+	}
+
+	void pushBox(T* box)
+	{
+		_freeBox.push_back(box);
+	}
+
+
+private:
+	DEQUE<T*> _arrayBox;
+	DEQUE<T*> _freeBox;
+	int _allocatedBlockSize;
+	int _allAllotteSize = 0;
+};
+
+template <typename T>
+class FastListBox
+{
+public:
+	T val;
+	FastListBox* next = 0;
+	FastListBox* pre = 0;
+};
+
+template <typename T>
+class FastList
+{
+public:
+	typedef FastListBox<T>* iterator;
+
+	FastList(size_t allocatedBlockSize = 10000, size_t startAllotteBlockSize = 0): _allocator(allocatedBlockSize, startAllotteBlockSize)
+	{
+
+	}
+
+
+	iterator push_back(const T& val)
+	{
+		iterator box = allocateBack();
+		box->val = val;
+
+		return box;
+	}
+
+	iterator allocateBack()
+	{
+		iterator box = _allocator.popBox();
+		box->next = NULL;
+		box->pre = _back;
+
+
+		if (_back != NULL)
+		{
+			_back->next = box;
+		}
+		_back = box;
+
+		if (_front == NULL)
+		{
+			_front = _back;
+		}
+
+		++_size;
+
+		return box;
+	}
+
+	T& remove(iterator removeBox)
+	{
+		if (removeBox->next != NULL)
+		{
+			removeBox->next->pre = removeBox->pre;
+		}
+		if (removeBox->pre != NULL)
+		{
+			removeBox->pre->next = removeBox->next;
+		}
+
+
+
+		T& val = _front->val;
+
+		if (removeBox == _front)
+		{
+			_front = removeBox->next;
+		}
+
+		if (removeBox == _back)
+		{
+			_back = removeBox->pre;
+		}
+
+		_allocator.pushBox(removeBox);
+
+		--_size;
+
+		return val;
+	}
+
+	T& pop_front()
+	{
+		return remove(_front);
+	}
+
+	T& pop_back()
+	{
+		return remove(_back);
+	}
+
+	T* back()
+	{
+		return &_back->val;
+	}
+
+	T* front()
+	{
+		return &_front->val;
+	}
+
+	size_t size()
+	{
+		return _size;
+	}
+
+private:
+	Allocator<FastListBox<T>> _allocator;
+	iterator _front=NULL;
+	iterator _back=NULL;
+	size_t _size = 0;
+};
+
+
+template <typename T>
+class DistributedQueueBox;
+
+template <typename T>
+class DistributedQueueUser
+{
+public:
+	typedef typename FastList<DistributedQueueBox<T>>::iterator ListLink;
+	typedef typename FastList<DistributedQueueUser<T>>::iterator UserLink;
+
+
+	size_t size()
+	{
+		return _deque.size();
+	}
+
+	ListLink front()
+	{
+		return _deque.front();
+	}
+
+	void pop_back()
+	{
+		return _deque.pop_back();
+	}
+
+	void pop_front()
+	{
+		return _deque.pop_front();
+	}
+
+	void push_back(ListLink val)
+	{
+		return _deque.push_back(val);
+	}
+
+	DEQUE<ListLink> _deque;
+	UserLink _positionInUserList;
+};
+
+template <typename T>
+class DistributedQueueBox
+{
+public:
+	DistributedQueueBox()
+	{
+	}
+
+	DistributedQueueBox(DistributedQueueUser<T>* user, T& val)
+	{
+		_user = user;
+		_val = val;
+	}
+
+	DistributedQueueBox(const DistributedQueueBox& myBox)
+	{
+		_user = myBox._user;
+		_val = myBox._val;
+	}
+
+
+	DistributedQueueUser<T>* _user;
+	T _val;
+};
+
+template<typename T>
+class DistributedQueue
+{
+public:
+	typedef typename FastList<DistributedQueueBox<T>>::iterator ListLink;
+	typedef typename FastList<DistributedQueueUser<T>>::iterator UserLink;
+
+	typedef typename DistributedQueueUser<T>* user;
+	
+	user addUser()
+	{
+		UserLink user = _userList.allocateBack();
+		user->val._positionInUserList = user;
+
+		return &user->val;
+	}
+
+	void removeUser(user user)
+	{
+		while (user->size())
+		{
+			_list.remove(user->front());
+			user->pop_front();
+		}
+
+		_userList.remove(user->_positionInUserList);
+	}
+
+
+	void removeUser(user user, boost::function<void(T)> func)
+	{
+		while (user->size())
+		{
+			func(user->front()->val._val);
+
+			_list.remove(user->front());
+			user->pop_front();
+		}
+
+		_userList.remove(user->_positionInUserList);
+	}
+
+	void push_back(user user, const T& val)
+	{
+		ListLink box = _list.allocateBack();
+		box->val._val = val;
+		box->val._user = user;
+
+		user->push_back(box);
+	}
+
+	bool pop_front(T* val)
+	{
+		if (_list.size())
+		{
+			DistributedQueueBox<T>* box = &_list.pop_front();
+			*val = box->_val;
+
+			box->_user->pop_front();
+
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	size_t size()
+	{
+		return _list.size();
+	}
+
+private:
+	FastList<DistributedQueueBox<T>> _list;
+	FastList<DistributedQueueUser<T>> _userList;
+};
+
+
+
+class WorkThread
+{
+public:
+	WorkThread() : _userMutex(100), thread_(&WorkThread::work, this) {}
+
+	~WorkThread()
+	{
+		cout << "~Thread()" << endl;
+		run_ = false;
+		_mutedSemaphore.addCount();
+		thread_.join();
+	}
+
+	FairMutex _userMutex;
+	boost::mutex _taskMutex;
+
+
+	DistributedQueue<boost::function<void()>*> _tasksQueue;
+	MutatedSemaphore _mutedSemaphore;
+
+private:
+	void work()
+	{
+		while (run_)
+		{
+			_mutedSemaphore.wait();
+
+			if (!run_) break;
+
+			_userMutex.lock();
+			_taskMutex.lock();
+
+			boost::function<void()>* F;
+			if (_tasksQueue.pop_front(&F))
+			{
+				_mutedSemaphore.removeCount();
+				cout << "F()" << endl;
+				_taskMutex.unlock();
+
+				(*F)();
+			}
+			else
+			{
+				//Remove successfully, but the wait semaphore has already passed
+				_taskMutex.unlock();
+				cout << "eeeee!!!!!" << endl;
+			}
+			_userMutex.unlock();
+
+
+		}
+	}
+
+	volatile bool run_ = true;
+	boost::thread thread_;
+};
+
+
+class Tasks
+{
+
+public:
+	~Tasks()
+	{
+		cout << "~Tasks()" << endl;
+		if (_workThread != NULL)
+		{
+			cout << "~Tasks() wait MUTEX" << endl;
+			boost::lock_guard<FairMutex> l(_workThread->_userMutex);
+
+			cout << "~Tasks() ok" << endl;
+			size_t size = _user->size();
+			_workThread->_tasksQueue.removeUser(_user);
+			_workThread->_mutedSemaphore.removeCount(size);
+			cout << "~rem" << endl;
+		}
+	}
+
+	void setWorkThread(WorkThread* workThread)
+	{
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<FairMutex> l(_workThread->_userMutex);
+			size_t size = _user->size();
+			_workThread->_tasksQueue.removeUser(_user, [&](boost::function<void()>* func) {_noThreadTaskQueue.push_back(func);});
+			_workThread->_mutedSemaphore.removeCount(size);
+		}
+
+
+		_workThread = workThread;
+
+
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<FairMutex> l(_workThread->_userMutex);
+			_user = _workThread->_tasksQueue.addUser();
+
+
+			if (_noThreadTaskQueue.size())
+			{
+				boost::lock_guard<boost::mutex> l(_workThread->_taskMutex);
+				_workThread->_mutedSemaphore.addCount(_noThreadTaskQueue.size());
+				while (_noThreadTaskQueue.size())
+				{
+					_workThread->_tasksQueue.push_back(_user, _noThreadTaskQueue.front());
+					_noThreadTaskQueue.pop_front();
+				}
+			}
+		}
+	}
+
+	template <typename T>
+	void push(const T& f)
+	{
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<boost::mutex> l(_workThread->_taskMutex);
+
+			_workThread->_tasksQueue.push_back(_user, f);
+			_workThread->_mutedSemaphore.addCount();
+
+			cout << "push"<<endl;
+		}
+		else
+		{
+			_noThreadTaskQueue.push_back(f);
+		}
+	}
+
+private:
+	DistributedQueue<boost::function<void()>*>::user _user;
+	WorkThread* _workThread = NULL;
+
+	boost::container::deque<boost::function<void()>*> _noThreadTaskQueue;
+};
+
+
+int t1, t2, t3;
+
+/*
+int I = 0;
+int userCount = 5;
+int messageInSecond = 2000000;
+
+int EndVal = messageInSecond * userCount;
+
+void workFunc()
+{
+	//cout << "myff" << endl;
+
+	I++;
+
+	if (I == EndVal)
+	{
+		t3 = clock();
+		cout << "FULL=" << t3 - t1 << ' ' << I << endl;
+	}
+
+	cout << "FUNC" << endl;
+	Sleep(1000);
+
+}
+
+*/
+
+int all = 10000000;
+int w = 0;
+
+
+//boost::mutex boostM;
+FairMutex boostM;
+
+static inline void pp()
+{
+	w++;
+	if (w == all)
+	{
+		cout <<"END=="<< clock() - t1 << endl;
+	}
+	Sleep(1000);
+}
+
+
+void eee(Tasks* ta)
+{
+	delete ta;
+}
+
+boost::function<void()>* arr[10000000];
+
+
+template <typename T>
+class MemoryBlock
+{
+public:
+	MemoryBlock(size_t size)
+	{
+		memoryBlock = new T[size];
+	}
+
+
+	~MemoryBlock()
+	{
+		delete[] memoryBlock;
+	}
+
+	MemoryBlock* preBlock = NULL;
+	MemoryBlock* nextBlock = NULL;
+	T* memoryBlock;
+
+private:
+	MemoryBlock* ___memoryboost___;
+};
+
+template <typename T>
+class MyStack
+{
+public:
+	MyStack(unsigned int memoryBlockSize = 10000)
+	{
+		_memoryBlockSize = memoryBlockSize;
+		_backBlock = new MemoryBlock<T>(_memoryBlockSize);
+		_frontBlock = _backBlock;
+	}
+
+	~MyStack()
+	{
+		while (_frontBlock != nullptr)
+		{
+			MemoryBlock<T>* newBlock = _frontBlock->nextBlock;
+			delete _frontBlock;
+			_frontBlock = newBlock;
+		}
+	}
+
+	void push(const T& val)
+	{
+		if (_backId >= _memoryBlockSize)
+		{
+			MemoryBlock<T>* newBlock = new MemoryBlock<T>(_memoryBlockSize);
+
+			_backBlock->nextBlock = newBlock;
+			newBlock->preBlock = _backBlock;
+			_backBlock = newBlock;
+			_backId = 0;
+		}
+
+		++_size;
+
+		_backBlock->memoryBlock[_backId++] = val;
+	}
+
+	const T& pop()
+	{
+		if (_backId <= 0)
+		{
+			MemoryBlock<T>* newBlock = _backBlock->preBlock;
+
+			delete _backBlock;
+			_backBlock = newBlock;
+			_backBlock->nextBlock = NULL;
+			_backId = _memoryBlockSize;
+		}
+
+		--_size;
+		return _backBlock->memoryBlock[--_backId];
+	}
+
+	const size_t& size()
+	{
+		return _size;
+	}
+
+private:
+	size_t _size = 0;
+
+	unsigned int _memoryBlockSize = 0;
+	unsigned int _backId = 0;
+	MemoryBlock<T>* _backBlock;
+	MemoryBlock<T>* _frontBlock;
+};
+
+template <typename T>
+class MyQueue
+{
+public:
+	MyQueue(unsigned int memoryBlockSize = 10000)
+	{
+		_memoryBlockSize = memoryBlockSize;
+		_backBlock = new MemoryBlock<T>(_memoryBlockSize);
+		_frontBlock = _backBlock;
+	}
+
+	~MyQueue()
+	{
+		while (_frontBlock != nullptr)
+		{
+			MemoryBlock<T>* newBlock = _frontBlock->nextBlock;
+			delete _frontBlock;
+			_frontBlock = newBlock;
+		}
+	}
+
+	void push(const T& val)
+	{
+		if (_backId >= _memoryBlockSize)
+		{
+			MemoryBlock<T>* newBlock = new MemoryBlock<T>(_memoryBlockSize);
+			_backBlock->nextBlock = newBlock;
+			_backBlock = newBlock;
+			_backId = 0;
+		}
+
+		++_size;
+
+		_backBlock->memoryBlock[_backId++] = val;
+	}
+
+	const T& pop()
+	{
+		if (_frontId >= _memoryBlockSize)
+		{
+			MemoryBlock<T>* newBlock = _frontBlock->nextBlock;
+			delete _frontBlock;
+			_frontBlock = newBlock;
+			_frontId = 0;
+		}
+		
+		--_size;
+
+		return _frontBlock->memoryBlock[_frontId++];
+	}
+
+	const size_t& size()
+	{
+		return _size;
+	}
+
+private:
+	size_t _size = 0;
+
+	unsigned int _memoryBlockSize = 0;
+	unsigned int _backId = 0;
+	unsigned int _frontId = 0;
+	MemoryBlock<T>* _backBlock;
+	MemoryBlock<T>* _frontBlock;
+};
+
+
+template <typename T>
+class MyDeque
+{
+public:
+	MyDeque(unsigned int memoryBlockSize = 10000)
+	{
+		_memoryBlockSize = memoryBlockSize;
+		_backBlock = new MemoryBlock<T>(_memoryBlockSize);
+		_frontBlock = _backBlock;
+	}
+
+	~MyDeque()
+	{
+		while (_frontBlock != nullptr)
+		{
+			MemoryBlock<T>* newBlock = _frontBlock->nextBlock;
+			delete _frontBlock;
+			_frontBlock = newBlock;
+		}
+	}
+
+	void pushBack(const T& val)
+	{
+		if (_backId >= _memoryBlockSize)
+		{
+			MemoryBlock<T>* newBlock = new MemoryBlock<T>(_memoryBlockSize);
+
+			_backBlock->nextBlock = newBlock;
+			newBlock->preBlock = _backBlock;
+			_backBlock = newBlock;
+			_backId = 0;
+		}
+
+		++_size;
+
+		_backBlock->memoryBlock[_backId++] = val;
+	}
+
+	const T& popBack()
+	{
+		if (_backId <= 0)
+		{
+			MemoryBlock<T>* newBlock = _backBlock->preBlock;
+
+			delete _backBlock;
+			_backBlock = newBlock;
+			_backBlock->nextBlock = NULL;
+			_backId = _memoryBlockSize;
+		}
+
+		--_size;
+		return _backBlock->memoryBlock[--_backId];
+	}
+
+	const T& back()
+	{
+		int backId = _backId;
+		MemoryBlock<T>* newBlock= _backBlock;
+		if (backId <= 0)
+		{
+			newBlock = _backBlock->preBlock;
+			backId = _memoryBlockSize;
+		}
+
+		return _backBlock->memoryBlock[--backId];
+	}
+
+	void pushFront(const T& val)
+	{
+		if (_frontId <= 0)
+		{
+			MemoryBlock<T>* newBlock = new MemoryBlock<T>(_memoryBlockSize);
+			_frontBlock->preBlock = newBlock;
+			newBlock->nextBlock = _frontBlock;
+
+			_frontBlock = newBlock;
+			_frontId = _memoryBlockSize;
+		}
+
+		++_size;
+		_frontBlock->memoryBlock[--_frontId] = val;
+	}
+
+	const T& popFront()
+	{
+		if (_frontId >= _memoryBlockSize)
+		{
+			MemoryBlock<T>* newBlock = _frontBlock->nextBlock;
+			delete _frontBlock;
+			_frontBlock = newBlock;
+			_frontId = 0;
+		}
+
+		--_size;
+		return _frontBlock->memoryBlock[_frontId++];
+	}
+
+	const T& front()
+	{
+		MemoryBlock<T>* newBlock= _frontBlock;
+		int frontId = _frontId;
+
+		if (frontId >= _memoryBlockSize)
+		{
+			newBlock = newBlock->nextBlock;
+			frontId = 0;
+		}
+
+		return newBlock->memoryBlock[frontId++];
+	}
+
+
+
+	const size_t& size()
+	{
+		return _size;
+	}
+
+private:
+	size_t _size = 0;
+
+	unsigned int _memoryBlockSize = 0;
+	unsigned int _backId = 0;
+	unsigned int _frontId = 0;
+	MemoryBlock<T>* _backBlock;
+	MemoryBlock<T>* _frontBlock;
+};
+
+
+template <typename T>
+class MyAllocator
+{
+public:
+	MyAllocator(size_t minSize= 100000, size_t normalFreeSize = 100000) : _freeBoxQueue(10000)
+	{
+		_minSize = minSize;
+		_normalFreeSize = normalFreeSize;
+
+		_allocate(_minSize + normalFreeSize);
+	}
+
+	~MyAllocator()
+	{
+		while (_freeBoxQueue.size())
+		{
+			delete _freeBoxQueue.pop();
+		}
+	}
+
+	T* allocate()
+	{
+		if (_freeBoxQueue.size()==0)
+		{
+			_allocate(_normalFreeSize);
+		}
+
+
+		return _freeBoxQueue.pop();
+	}
+
+	void relise(T* val)
+	{
+		_freeBoxQueue.push(val);
+	}
+
+	void leadToNormal()
+	{
+		if (_allAllocateSize > _minSize + _normalFreeSize)
+		{
+			if (_freeBoxQueue.size() > _normalFreeSize)
+			{
+				_relise(_freeBoxQueue.size() - _normalFreeSize);
+			}
+		}
+	}
+
+	size_t freeSize()
+	{
+		return _freeBoxQueue.size();
+	}
+
+	size_t allSize()
+	{
+		return _allAllocateSize;
+	}
+
+private:
+	void _allocate(size_t size)
+	{
+		for (int i = 0; i < size; ++i)
+		{
+			_freeBoxQueue.push(new T);
+		}
+		_allAllocateSize += size;
+	}
+
+	void _relise(size_t size)
+	{
+		if (_freeBoxQueue.size() < size)
+		{
+			size = _freeBoxQueue.size();
+		}
+
+		for (int i = 0; i < size; ++i)
+		{
+			 delete _freeBoxQueue.pop();
+		}
+		_allAllocateSize -= size;
+	}
+
+
+	MyQueue<T*> _freeBoxQueue;
+	size_t _allAllocateSize = 0;
+
+	size_t _minSize;
+	size_t _normalFreeSize;
+
+};
+
+
+
+
+template <typename T>
+class MyList
+{
+public:
+	class ListBox
+	{
+	public:
+		T val;
+		ListBox* next = 0;
+		ListBox* pre = 0;
+	};
+
+	typedef ListBox* iterator;
+
+	MyList(size_t minSize = 100000, size_t normalFreeSize = 10000) : _allocator(minSize, normalFreeSize)
+	{
+
+	}
+
+	~MyList()
+	{
+		while (_front != NULL)
+		{
+			iterator removeBox = _front;
+			_front = removeBox->next;
+			_allocator.relise(removeBox);
+		}
+	}
+
+	iterator pushBack(const T& val)
+	{
+		iterator box = allocateBack();
+		box->val = val;
+
+		return box;
+	}
+
+	iterator allocateBack()
+	{
+		iterator box = _allocator.allocate();
+		box->next = NULL;
+		box->pre = _back;
+
+
+		if (_back != NULL)
+		{
+			_back->next = box;
+		}
+		_back = box;
+
+		if (_front == NULL)
+		{
+			_front = _back;
+		}
+
+		++_size;
+
+		return box;
+	}
+
+
+	iterator pushFront(const T& val)
+	{
+		iterator box = allocateFront();
+		box->val = val;
+
+		return box;
+	}
+
+	iterator allocateFront()
+	{
+		iterator box = _allocator.allocate();
+		box->next = _front;
+		box->pre = NULL;
+
+
+		if (_front != NULL)
+		{
+			_front->pre = box;
+		}
+		_front = box;
+
+		if (_back == NULL)
+		{
+			_front = _back;
+		}
+
+		++_size;
+
+		return box;
+	}
+
+	const T& remove(iterator removeBox)
+	{
+
+		if (removeBox->next != NULL)
+		{
+			removeBox->next->pre = removeBox->pre;
+		}
+		if (removeBox->pre != NULL)
+		{
+			removeBox->pre->next = removeBox->next;
+		}
+
+
+		const T& val = _front->val;
+
+		
+		if (removeBox == _front)
+		{
+			_front = removeBox->next;
+		}
+
+		if (removeBox == _back)
+		{
+			_back = removeBox->pre;
+		}
+		
+
+		_allocator.relise(removeBox);
+
+		--_size;
 
 		return val;
 	}
 
 
+	const T& popFront()
+	{
+		return remove(_front);
+	}
+
+	const T& popBack()
+	{
+		return remove(_back);
+	}
+
+	T* back()
+	{
+		return &_back->val;
+	}
+
+	T* front()
+	{
+		return &_front->val;
+	}
+
+	size_t size()
+	{
+		return _size;
+	}
+
+	MyAllocator<ListBox>* getAllocator()
+	{
+		return &_allocator;
+	}
+
 private:
-	bc::list<MyBox<T>> _list;
-
-	MutatedSemaphore sem;
-
-	tbb::spin_mutex _sp;
+	MyAllocator<ListBox> _allocator;
+	iterator _front = NULL;
+	iterator _back = NULL;
+	size_t _size = 0;
 };
 
 
-int myNum = 0;
+
+
+class DList
+{
+public:
+	class User
+	{
+	public:
+
+	};
+};
+
+
+int y=0;
 void qwe()
 {
-	myNum++;
-	if (myNum == 10000000)
+	y++;
+	if (y == 100000000)
 	{
-		cout << clock() << endl;
+		cout << "yyy" << endl;
 	}
 }
 
-
-MyList<boost::function<void()>> ML;
-
-void fft()
-{
-	while (1)
-	{
-		if (!ML.empty())
-		{
-			try
-			{
-				boost::function<void()> F = ML.front();
-				F();
-				ML.pop();
-			}
-			catch (...)
-			{
-				cout << "ERR" << endl;
-			}
-		}
-	}
-}
 
 
 void main()
-{
-
-	int t1 = clock();
-
-
-	boost::thread(fft).detach();
-	auto user1 = ML.addUser();
-
-	tbb::spin_mutex sp;
+{	
+	/*
+	WorkThread* wt = new WorkThread;
+	WorkThread* wt2 = new WorkThread;
+	Tasks* ta = new Tasks;
+	Tasks* ta2 = new Tasks;
 
 
-	for (int i = 0; i < 10000000; ++i)
-	{
-		ML.push(user1, &qwe);
-		//boost::function<void()> F = ML.front();
-		//F();
-		//ML.pop();
-	}
-	//ML.removeUser(user1);
+	ta2->setWorkThread(wt);
+	ta->setWorkThread(wt2);
 
-	int t2 = clock();
+	*/
 
-	cout << t2 - t1<<endl;
-
-	//cout << ML.pop() << endl;
-	//cout << (*user1->back())._val;
-	cout << user1->size()<<endl;
-
-
-	system("pause");
-	
-	
-	TaskWorkThread TWT;
-	TaskAgent TA;
-
-
-	TaskAgent TA2;
-	for (int i = 0; i < userCount; ++i)
-	{
-		//TWT.add(&TA2);
-	}
 
 	t1 = clock();
 
-	//TWT.add(&TA);
-	TA.setTaskAgentQueueList(&TWT.taskAgentQueueList_);
+	MyList<int> _list(10000000, 100000);
 
-	for (int i = 0; i < EndVal; ++i)
-	{
-		TA.push(&myff);
-	}
-	//TA.setTaskAgentQueueList(0);
-
+	//FastList<int> _list;
 
 	t2 = clock();
-	cout << "START=" << t2 - t1 << endl;
+
+
+	for (int i = 0; i<10000000; ++i)
+	{
+		//arr2[i] = 
+			_list.allocateBack();
+	}
+
+	int t4=clock();
+	int y;
+	for (int i = 0; i < 10000000; ++i)
+	{
+		_list.popBack();
+	}
+
+	_list.getAllocator()->leadToNormal();
+
+	delete _list.getAllocator();
+
+	t3 = clock();
+
+	cout << t2 - t1 << ' '<< t4 - t2<<' '<< t3-t4 << endl;
+
+	cout << _list.size() << endl;
+
+	//cout << _alloc.allSize() << endl;
+	//cout << _alloc.freeSize() << endl;
+
+
+	/*
+	boost::function<void()>* MYF = new boost::function<void()>(&pp);
+
+	for (int i = 0; i < 10; ++i)
+	{
+		ta->push(MYF);
+		ta2->push(MYF);
+	}
 	
 
+
+	thread(eee, ta).detach();
+	thread(eee, ta2).detach();
+
+	cout << "w=" << w << " size=" << wt->_tasksQueue.size() << endl;
+	*/
+
 	system("pause");
-	
-	
 }
 
 
