@@ -1,0 +1,2063 @@
+
+/*
+#include <boost/asio.hpp>
+#include <boost/thread.hpp>
+
+
+#include "BaseAcceptor.h"
+
+using namespace corteli::network::pipe;
+using namespace std;
+
+*/
+
+#include <boost/asio.hpp>
+#include <boost/thread.hpp>
+
+#include <boost/container/list.hpp>
+#include <boost/container/slist.hpp>
+#include <boost/container/deque.hpp>
+
+#include <boost/container/map.hpp>
+#include <boost/container/vector.hpp>
+
+#include <thread>
+
+#include <mutex>
+#include <atomic>
+#include <list>
+#include <forward_list>
+
+
+
+
+using namespace std;
+
+#include <queue>
+#include <boost/bind.hpp>
+#include <boost/thread.hpp>
+
+#include <tbb/tbb.h>
+
+
+class MutatedSemaphore
+{
+public:
+	explicit MutatedSemaphore(unsigned int initial_count = 0) :
+		count_(initial_count)
+	{
+	}
+
+	unsigned int getCount()
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		return count_;
+	}
+
+	void addCount(unsigned int count = 1)
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		count_ += count;
+		condition_.notify_one();
+	}
+
+	void removeCount(unsigned int count = 1)
+	{
+		boost::lock_guard<boost::mutex> lock(mutex_);
+		if (count > count_)
+		{
+			count_ = 0;
+		}
+		else
+		{
+			count_ -= count;
+		}
+	}
+
+	void wait(bool removeCount = false)
+	{
+		boost::unique_lock<boost::mutex> lock(mutex_);
+		while (count_ == 0)
+		{
+			condition_.wait(lock);
+		}
+		if (removeCount)
+		{
+			--count_;
+		}
+	}
+
+private:
+	unsigned int count_;
+	boost::mutex mutex_;
+	tbb::spin_mutex spin_;
+
+	boost::condition_variable condition_;
+};
+
+
+
+
+
+
+#include "StandardClient.h"
+#include "BasePool.h"
+
+using namespace corteli::network::pipe;
+
+
+
+char buff[1000000];
+
+int timeS = 0;
+int byteall = 0;
+
+/*
+class CorteliClient : public corteli::network::pipe::BaseClient
+{
+public:
+CorteliClient(corteli::network::IoService* ioService, bool enabledDebugStream) : BaseClient(ioService, enabledDebugStream)
+{
+this->setRecvBuffSize(1000000);
+}
+
+protected:
+
+virtual void sentMessage(unsigned long long messageId)
+{
+
+}
+
+virtual void recvMessage(corteli::base::container::Buffer<char> buffer)
+{
+//cout<< buffer.getSize()<<endl;
+
+byteall += buffer.getSize();
+
+if (clock() - timeS > 1000)
+{
+cout << byteall / 1024 / 1024 <<endl;
+byteall = 0;
+timeS = clock();
+}
+
+this->send({ buff, 200000 });
+
+
+//send(buffer);
+}
+
+};
+
+*/
+
+/*
+template <typename T>
+struct MyBox
+{
+T val = NULL;
+MyBox* allBack = NULL;
+MyBox* localBack = NULL;
+MyBox* localFront = NULL;
+};
+
+template <typename T>
+class MyList
+{
+public:
+MyList()
+{
+_array = new MyBox<T>[10000000];
+for (int i = 0; i < 10000000; ++i)
+{
+_freeBox.push_back(&_array[i]);
+}
+}
+
+~MyList()
+{
+delete [] _array;
+}
+
+MyBox<T>* addUser()
+{
+MyBox<T>* box = _freeBox.front();
+_freeBox.pop_front();
+
+{
+box->allBack = NULL;
+box->localBack = NULL;
+box->localFront = NULL;
+}
+return box;
+}
+
+void push(MyBox<T>* user, T val)
+{
+MyBox<T>* box = _freeBox.front();
+_freeBox.pop_front();
+
+box->localFront = user;
+user->localBack = box;
+box->val = val;
+_back->allBack = box;
+}
+
+
+
+
+private:
+MyBox<T>* _array;
+boost::container::deque<MyBox<T>*> _freeBox;
+
+MyBox<T>* _front = NULL;
+MyBox<T>* _back = NULL;
+};
+*/
+
+/*
+template <typename T>
+struct MiniList
+{
+typename boost::container::list<T>::iterator _back;
+typename boost::container::list<T>::iterator _front=NULL;
+};
+
+template <typename T>
+struct MyBox
+{
+MyBox(MiniList<MyBox<T>>* miniList, T& val)
+{
+_LIST = miniList;
+_val = val;
+}
+
+MyBox(const MyBox& myBox)
+{
+//_front = myBox._front;
+_val = myBox._val;
+_LIST = myBox._LIST;
+}
+
+T _val;
+typename boost::container::list<MyBox<T>>::iterator* _back;
+MiniList<MyBox<T>>* _LIST;
+};
+
+template <typename T>
+class MyList
+{
+public:
+MiniList<MyBox<T>>* addUser()
+{
+return new MiniList<MyBox<T>>;
+}
+
+void push(MiniList<MyBox<T>>* USER, T val)
+{
+MyBox box;
+_list.push_back(box);
+
+*(USER->_back)._back = _list.back();
+USER->_back = _list.back();
+if (USER->_front==NULL)
+{
+USER->_front=_list.back()
+}
+
+}
+
+T pop()
+{
+T val = (*_list.front())._val;
+
+(*_list.front())._LIST->front = (*_list.front()).back;
+
+_list.pop_back();
+
+
+
+
+return val;
+}
+
+
+boost::container::list<MyBox<T>> _list;
+};
+*/
+
+
+#define BOOST_CONTAINER
+
+#ifdef BOOST_CONTAINER
+
+#include <boost/container/list.hpp>
+#include <boost/container/deque.hpp>
+
+#define LIST boost::container::list
+#define T_LIST typename boost::container::list
+
+#define DEQUE boost::container::deque
+#define T_DEQUE typename boost::container::deque
+
+#else
+
+#include <list>
+#include <deque>
+
+#define LIST std::list
+#define T_LIST typename std::list
+
+#define DEQUE std::deque
+#define T_DEQUE typename std::deque
+
+#endif
+
+
+
+/*
+template <typename T>
+class MyBox;
+
+template <typename T>
+class ListUser
+{
+public:
+size_t size()
+{
+return _deque.size();
+}
+
+T_LIST<MyBox<T>>::iterator front()
+{
+return _deque.front();
+}
+
+void pop_back()
+{
+return _deque.pop_back();
+}
+
+void pop_front()
+{
+return _deque.pop_front();
+}
+
+void push_back(T_LIST<MyBox<T>>::iterator& val)
+{
+return _deque.push_back(val);
+}
+
+DEQUE<T_LIST<MyBox<T>>::iterator> _deque;
+T_LIST<ListUser<T>*>::iterator _positionInUserList;//position in list<ListUser>
+};
+
+template <typename T>
+class MyBox
+{
+public:
+MyBox(ListUser<T>* user, T& val)
+{
+_user = user;
+_val = val;
+}
+
+MyBox(const MyBox& myBox)
+{
+_user = myBox._user;
+_val = myBox._val;
+}
+
+//private:
+ListUser<T>* _user;
+T _val;
+};
+
+template<typename T>
+class MyList
+{
+public:
+~MyList()
+{
+for (auto i : _userList)
+{
+delete i;
+}
+}
+
+ListUser<T>* addUser()
+{
+ListUser<T>* listUser = new ListUser<T>;
+_userList.push_back(listUser);
+listUser->_positionInUserList = (--_userList.end());
+
+return listUser;
+}
+
+void removeUser(ListUser<T>* user)
+{
+size_t size= user->size();
+for (size_t i = 0; i < size; ++i)
+{
+_list.erase(user->front());
+user->pop_front();
+}
+
+_userList.erase(user->_positionInUserList);
+delete user;
+}
+
+void push(ListUser<T>* user, T val)
+{
+MyBox<T> box(user, val);
+
+_list.push_back(box);
+
+user->push_back(--_list.end());
+
+}
+
+/*
+bool front(T* val)
+{
+if (!_list.empty())
+{
+*val = _list.front()._val;
+return true;
+}
+else
+{
+return false;
+}
+}
+
+bool empty()
+{
+return _list.empty();
+}
+
+bool pop()
+{
+if (!_list.empty())
+{
+_list.front()._deque->pop_front();
+_list.pop_front();
+return true;
+}
+else
+{
+return false;
+}
+}
+///
+
+bool pop(T* val)
+{
+if (!_list.empty())
+{
+*val = _list.front()._val;
+_list.front()._user->pop_front();
+_list.pop_front();
+
+return true;
+}
+else
+{
+return false;
+}
+}
+
+
+private:
+LIST<MyBox<T>> _list;
+LIST<ListUser<T>*> _userList;
+};
+*/
+
+
+template<typename T>
+class FlipArray
+{
+public:
+	FlipArray(int size)
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		_size = size;
+		_arr = new T[_size];
+	}
+
+	~FlipArray()
+	{
+		delete[] _arr;
+	}
+
+	int push()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		++_front;
+		if (_front >= _size)
+		{
+			_front = 0;
+		}
+
+		return _front;
+	}
+
+	int pop()
+	{
+		boost::lock_guard<tbb::spin_mutex> l(_spin);
+		++_back;
+		if (_back >= _size)
+		{
+			_back = 0;
+		}
+
+		return _back;
+	}
+
+	T* get(int i)
+	{
+		return &_arr[i];
+	}
+
+private:
+	tbb::spin_mutex _spin;
+
+	int _front = -1;
+	int _back = -1;
+
+	T* _arr;
+	int _size;
+};
+
+class LockedMutex
+{
+public:
+	LockedMutex()
+	{
+		mutex.lock();
+	}
+	boost::mutex mutex;
+};
+
+class FairMutex
+{
+public:
+	FairMutex(size_t maxQueue = 10) : _flipArr(maxQueue)
+	{
+		_flipArr.pop();
+		_flipArr.get(0)->mutex.unlock();
+	}
+
+	void lock()
+	{
+		int i = _flipArr.push();
+
+		_flipArr.get(i)->mutex.lock();
+
+		//cout << "l" << i << endl;
+	}
+
+	void unlock()
+	{
+		int i = _flipArr.pop();
+
+		_flipArr.get(i)->mutex.unlock();
+
+		//cout << "u" << i << endl;
+	}
+
+private:
+	FlipArray<LockedMutex> _flipArr;
+};
+
+class FairMutexV2
+{
+public:
+	FairMutexV2()
+	{
+	}
+
+	void lock()
+	{
+		_m.lock();
+
+		_queue.push_back(boost::this_thread::get_id());
+		while (boost::this_thread::get_id() != _queue.front())
+		{
+			_con.wait(_m);
+		}
+
+		_mainMutex.lock();
+
+		_m.unlock();
+	}
+
+	void unlock()
+	{
+		_m.lock();
+		_queue.pop_front();
+		_con.notify_all();
+
+		_mainMutex.unlock();
+
+		_m.unlock();
+	}
+
+private:
+
+	tbb::spin_mutex _m;
+	boost::condition_variable_any _con;
+	boost::container::deque<boost::thread::id> _queue;
+	boost::mutex _mainMutex;
+};
+
+class FairMutexV3
+{
+public:
+
+	void lock()
+	{
+		_m.lock();
+
+		_queue.push_back(boost::this_thread::get_id());
+		while (boost::this_thread::get_id() != _queue.front())
+		{
+			_m.unlock();
+			boost::this_thread::yield();
+			_m.lock();
+		}
+
+		_mainMutex.lock();
+
+		_m.unlock();
+	}
+
+	void unlock()
+	{
+		_m.lock();
+		_queue.pop_front();
+		_mainMutex.unlock();
+		_m.unlock();
+	}
+
+private:
+
+	tbb::spin_mutex _m;
+	boost::container::deque<boost::thread::id> _queue;
+	boost::mutex _mainMutex;
+};
+
+#include "DequeQueueStack.h"
+
+template <typename T>
+class Allocator
+{
+public:
+	Allocator(size_t minSize = 100000, size_t normalFreeSize = 100000)
+	{
+		_minSize = minSize;
+		_normalFreeSize = normalFreeSize;
+
+		_allocate(_minSize);
+	}
+
+	~Allocator()
+	{
+		while (_freeBoxQueue.size())
+		{
+			/*
+			delete _freeBoxQueue.front();
+			_freeBoxQueue.pop_front();
+			*/
+			delete _freeBoxQueue.pop();
+		}
+	}
+
+	T* alloc()
+	{
+
+		if (_freeBoxQueue.empty())
+		{
+			_allocate(_normalFreeSize);
+		}
+		
+		/*
+		T* val = _freeBoxQueue.front();
+		_freeBoxQueue.pop_front();
+		return val;
+		*/
+		return _freeBoxQueue.pop();
+	}
+
+	void free(T* val)
+	{
+		//_freeBoxQueue.push_front(val);
+		_freeBoxQueue.push(val);
+		leadToNormal();
+	}
+
+	void leadToNormal()
+	{
+		while (_allAllocateSize >= _minSize + _normalFreeSize)
+		{
+			if (int(_freeBoxQueue.size() - _normalFreeSize) >= 0)
+			{
+
+				if (_normalFreeSize == 0) { break; }
+				_relise(_normalFreeSize);
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+
+	size_t freeSize()
+	{
+		return _freeBoxQueue.size();
+	}
+
+	size_t allSize()
+	{
+		return _allAllocateSize;
+	}
+
+private:
+	void _allocate(size_t size)
+	{
+		for (int i = 0; i < size; ++i)
+		{
+			_freeBoxQueue.push(new T);
+			//_freeBoxQueue.push_front(new T);
+		}
+		_allAllocateSize += size;
+	}
+
+	void _relise(size_t size)
+	{
+		if (_freeBoxQueue.size() < size)
+		{
+			size = _freeBoxQueue.size();
+		}
+
+		for (int i = 0; i < size; ++i)
+		{
+			//_freeBoxQueue.pop_front();
+			delete _freeBoxQueue.pop();
+		}
+		_allAllocateSize -= size;
+	}
+
+	//boost::container::deque<T*> _freeBoxQueue;
+	MyQueue<T*> _freeBoxQueue;
+	size_t _allAllocateSize = 0;
+
+	size_t _minSize;
+	size_t _normalFreeSize;
+};
+
+
+/*
+template <typename T>
+class FastListBox
+{
+public:
+T val;
+FastListBox* next = 0;
+FastListBox* pre = 0;
+};
+
+template <typename T>
+class FastList
+{
+public:
+typedef FastListBox<T>* iterator;
+
+FastList(size_t allocatedBlockSize = 10000, size_t startAllotteBlockSize = 0): _allocator(allocatedBlockSize, startAllotteBlockSize)
+{
+
+}
+
+
+iterator pushBack(const T& val)
+{
+iterator box = allocateBack();
+box->val = val;
+
+return box;
+}
+
+iterator allocateBack()
+{
+iterator box = _allocator.alloc();
+box->next = NULL;
+box->pre = _back;
+
+
+if (_back != NULL)
+{
+_back->next = box;
+}
+_back = box;
+
+if (_front == NULL)
+{
+_front = _back;
+}
+
+++_size;
+
+return box;
+}
+
+T& remove(iterator removeBox)
+{
+if (removeBox->next != NULL)
+{
+removeBox->next->pre = removeBox->pre;
+}
+if (removeBox->pre != NULL)
+{
+removeBox->pre->next = removeBox->next;
+}
+
+
+
+T& val = _front->val;
+
+if (removeBox == _front)
+{
+_front = removeBox->next;
+}
+
+if (removeBox == _back)
+{
+_back = removeBox->pre;
+}
+
+_allocator.free(removeBox);
+
+--_size;
+
+return val;
+}
+
+T& popFront()
+{
+return remove(_front);
+}
+
+T& popBack()
+{
+return remove(_back);
+}
+
+iterator back()
+{
+return _back;
+}
+
+iterator front()
+{
+return _front;
+}
+
+size_t size()
+{
+return _size;
+}
+
+private:
+Allocator<FastListBox<T>> _allocator;
+iterator _front=NULL;
+iterator _back=NULL;
+size_t _size = 0;
+};
+*/
+
+
+template <typename T>
+class FastListBox
+{
+public:
+	T val;
+	FastListBox<T>* next = 0;
+	FastListBox<T>* pre = 0;
+};
+
+
+template <typename T, class A = Allocator<FastListBox<T>>>
+class FastList
+{
+public:
+	typedef FastListBox<T>* iterator;
+
+
+	FastList(size_t minSize = 100000, size_t normalFreeSize = 10000) : _allocator(minSize, normalFreeSize)
+	{
+	}
+
+	~FastList()
+	{
+		while (_front != NULL)
+		{
+			iterator removeBox = _front;
+			_front = removeBox->next;
+			_allocator.free(removeBox);
+		}
+	}
+
+	iterator pushBack(const T& val)
+	{
+		iterator box = allocateBack();
+		box->val = val;
+
+		return box;
+	}
+
+	iterator allocateBack()
+	{
+		iterator box = _allocator.alloc();
+		box->next = NULL;
+		box->pre = _back;
+
+
+		if (_back != NULL)
+		{
+			_back->next = box;
+		}
+		_back = box;
+
+		if (_front == NULL)
+		{
+			_front = _back;
+		}
+
+		++_size;
+
+		return box;
+	}
+
+
+	iterator pushFront(const T& val)
+	{
+		iterator box = allocateFront();
+		box->val = val;
+
+		return box;
+	}
+
+	iterator allocateFront()
+	{
+		iterator box = _allocator.alloc();
+
+		box->next = _front;
+		box->pre = NULL;
+
+
+		if (_front != NULL)
+		{
+			_front->pre = box;
+		}
+		_front = box;
+
+		if (_back == NULL)
+		{
+			_front = _back;
+		}
+
+		++_size;
+
+		return box;
+	}
+
+	void remove(iterator removeBox)
+	{
+
+		if (removeBox->next != NULL)
+		{
+			removeBox->next->pre = removeBox->pre;
+		}
+		if (removeBox->pre != NULL)
+		{
+			removeBox->pre->next = removeBox->next;
+		}
+
+
+		if (removeBox == _front)
+		{
+			_front = removeBox->next;
+		}
+
+		if (removeBox == _back)
+		{
+			_back = removeBox->pre;
+		}
+
+		_allocator.free(removeBox);
+
+		--_size;
+	}
+
+
+	void popFront()
+	{
+		return remove(_front);
+	}
+
+	void popBack()
+	{
+		return remove(_back);
+	}
+
+	T* back()
+	{
+		return &_back->val;
+	}
+
+	T* front()
+	{
+		return &_front->val;
+	}
+
+	size_t size()
+	{
+		return _size;
+	}
+
+	A* getAllocator()
+	{
+		return &_allocator;
+	}
+
+private:
+	A _allocator;
+	iterator _front = NULL;
+	iterator _back = NULL;
+	size_t _size = 0;
+};
+
+
+
+template <typename T>
+class DistributedQueueBox;
+
+template <typename T>
+class DistributedQueueUser
+{
+public:
+	typedef typename FastList<DistributedQueueBox<T>>::iterator ListLink;
+	typedef typename FastList<DistributedQueueUser<T>>::iterator UserLink;
+
+
+	size_t size()
+	{
+		return _deque.size();
+	}
+
+	ListLink front()
+	{
+		return _deque.front();
+	}
+
+
+	void popBack()
+	{
+		return _deque.pop_back();
+	}
+
+	void popFront()
+	{
+		return _deque.pop_front();
+	}
+
+	void pushBack(ListLink val)
+	{
+		return _deque.push_back(val);
+	}
+
+	void pushFront(ListLink val)
+	{
+		return _deque.push_front(val);
+	}
+
+	DEQUE<ListLink> _deque;
+	UserLink _positionInUserList;
+};
+
+template <typename T>
+class DistributedQueueBox
+{
+public:
+	DistributedQueueBox()
+	{
+	}
+
+	DistributedQueueBox(DistributedQueueUser<T>* user, T& val)
+	{
+		_user = user;
+		_val = val;
+	}
+
+	DistributedQueueBox(const DistributedQueueBox& myBox)
+	{
+		_user = myBox._user;
+		_val = myBox._val;
+	}
+
+
+	DistributedQueueUser<T>* _user;
+	T _val;
+};
+
+template<typename T>
+class DistributedQueue
+{
+public:
+	typedef typename FastList<DistributedQueueBox<T>>::iterator ListLink;
+	typedef typename FastList<DistributedQueueUser<T>>::iterator UserLink;
+
+	typedef typename DistributedQueueUser<T>* user;
+
+	DistributedQueue(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000)
+		: _list(minSizeList, normalFreeSizeList),
+		_userList(minSizeUser, normalFreeSizeUser)
+	{
+	}
+
+	user addUser()
+	{
+		UserLink user = _userList.allocateBack();
+		user->val._positionInUserList = user;
+
+		return &user->val;
+	}
+
+	void removeUser(user user)
+	{
+		while (user->size())
+		{
+			_list.remove(user->front());
+			user->popFront();
+		}
+
+		_userList.remove(user->_positionInUserList);
+	}
+
+
+	void removeUser(user user, boost::function<void(T)> func)
+	{
+		while (user->size())
+		{
+			func(user->front()->val._val);
+
+			_list.remove(user->front());
+			user->popFront();
+		}
+
+		_userList.remove(user->_positionInUserList);
+	}
+
+	void push(user user, const T& val)
+	{
+		ListLink box = _list.allocateBack();
+
+		box->val._val = val;
+		box->val._user = user;
+
+		user->pushBack(box);
+
+	}
+
+	T* front()
+	{
+		if (_list.size())
+		{
+			return &_list.front()->_val;
+		}
+		else
+		{
+			return NULL;
+		}
+	}
+
+	void pop()
+	{
+		DistributedQueueBox<T>* box = _list.front();
+		box->_user->popFront();
+		_list.popFront();
+	}
+
+	bool pop(T* val)
+	{
+		if (_list.size())
+		{
+			DistributedQueueBox<T>* box = _list.front();
+
+			*val = box->_val;
+
+			box->_user->popFront();
+			_list.popFront();
+
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	size_t size()
+	{
+		return _list.size();
+	}
+
+private:
+	FastList<DistributedQueueBox<T>> _list;
+	FastList<DistributedQueueUser<T>> _userList;
+};
+
+
+template<typename T>
+class WorkThreadBase
+{
+public:
+	WorkThreadBase(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000, size_t userMutexSize = 1000) :
+		_userMutex(userMutexSize),
+		_tasksQueue(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser),
+		thread_(&WorkThreadBase::work, this)
+	{
+	}
+
+	~WorkThreadBase()
+	{
+		cout << "thread" << endl;
+		//thread_.detach();
+		run_ = false;
+		_mutedSemaphore.addCount();
+
+		Sleep(1000);
+
+		try 
+		{
+			thread_.join();
+		}
+		catch (...)
+		{
+			cout << "ERR"<<endl;
+			Sleep(5000);
+		}
+
+		cout << "off" << endl;
+
+		//_con.wait();
+	}
+
+	FairMutex _userMutex;
+	boost::mutex _taskMutex;
+
+
+	DistributedQueue<T> _tasksQueue;
+	MutatedSemaphore _mutedSemaphore;
+
+protected:
+	virtual void runFunction(T* func) = 0;
+
+private:
+	void work()
+	{
+		while (run_)
+		{
+			_mutedSemaphore.wait();
+
+
+			if (!run_) break;
+
+			_userMutex.lock();
+			_taskMutex.lock();
+
+
+
+			T* funcLink = _tasksQueue.front();
+
+			if (funcLink)
+			{
+				T func = *funcLink;
+
+				_tasksQueue.pop();
+				_mutedSemaphore.removeCount();
+				_taskMutex.unlock();
+
+
+				try
+				{
+					runFunction(&func);
+				}
+				catch (const std::exception& e)
+				{
+					cout << e.what() << endl;
+				}
+
+			}
+			else
+			{
+
+				cout << _tasksQueue.size() << endl;
+				cout << _mutedSemaphore.getCount() << endl;
+
+				//Remove successfully, but the wait semaphore has already passed
+				_taskMutex.unlock();
+				cout << "eeeee!!!!!" << endl;
+			}
+			_userMutex.unlock();
+		}
+
+		cout << "end!!!!!" << endl;
+		//_con.addCount();
+	}
+
+	volatile bool run_ = true;
+	boost::thread thread_;
+
+
+
+	//MutatedSemaphore _con;
+};
+
+template<typename T>
+class TaskAgentBase
+{
+
+public:
+	~TaskAgentBase()
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+		cout << "~Tasks()" << endl;
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<FairMutex> ul(_workThread->_userMutex);
+			boost::lock_guard<boost::mutex> tl(_workThread->_taskMutex);
+
+			size_t size = _user->size();
+			_workThread->_tasksQueue.removeUser(_user);
+			_workThread->_mutedSemaphore.removeCount(size);
+		}
+		cout << "~Tasks() ok" << endl;
+	}
+
+	void setWorkThread(WorkThreadBase<T>* workThread)
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<FairMutex> ul(_workThread->_userMutex);
+			boost::lock_guard<boost::mutex> tl(_workThread->_taskMutex);
+			size_t size = _user->size();
+			_workThread->_tasksQueue.removeUser(_user, [&](T func) {_noThreadTaskQueue.push_back(func); });
+			_workThread->_mutedSemaphore.removeCount(size);
+		}
+
+		_workThread = workThread;
+
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<FairMutex> ul(_workThread->_userMutex);
+			_user = _workThread->_tasksQueue.addUser();
+
+
+			if (_noThreadTaskQueue.size())
+			{
+				boost::lock_guard<boost::mutex> tl(_workThread->_taskMutex);
+				_workThread->_mutedSemaphore.addCount(_noThreadTaskQueue.size());
+				while (_noThreadTaskQueue.size())
+				{
+					_workThread->_tasksQueue.push(_user, _noThreadTaskQueue.front());
+					_noThreadTaskQueue.pop_front();
+				}
+			}
+		}
+	}
+
+	template <typename T>
+	void push(const T& f)
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+		if (_workThread != NULL)
+		{
+			boost::lock_guard<boost::mutex> tl(_workThread->_taskMutex);
+			_workThread->_tasksQueue.push(_user, f);
+			_workThread->_mutedSemaphore.addCount();
+
+		}
+		else
+		{
+			_noThreadTaskQueue.push_back(f);
+		}
+	}
+
+private:
+	typename DistributedQueue<T>::user _user;
+	WorkThreadBase<T>* _workThread = NULL;
+	boost::mutex _m;
+
+	boost::container::deque<T> _noThreadTaskQueue;
+};
+
+
+
+
+class WorkThread : public WorkThreadBase<boost::function<void()>>
+{
+public:
+	WorkThread(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000, size_t userMutexSize = 100000)
+		: WorkThreadBase(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser, userMutexSize)
+	{
+	}
+
+protected:
+	virtual void runFunction(boost::function<void()>* func)
+	{
+		(*func)();
+	}
+};
+
+class TaskAgent : public TaskAgentBase<boost::function<void()>>
+{
+};
+
+
+class TasksController
+{
+public:
+
+	TasksController(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000, size_t userMutexSize = 100000)
+	{
+		_workThreadList.push_back(new WorkThread(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser, userMutexSize));
+		//_newWorkThread();
+	}
+
+	~TasksController()
+	{
+		for (auto i : _taskAgentList)
+		{
+			i->setWorkThread(NULL);
+			cout << "set";
+		}
+		_taskAgentList.clear();
+
+		for (auto i : _workThreadList)
+		{
+			delete i;
+		}
+		_workThreadList.clear();
+	}
+
+	void newTaskAgent(TaskAgent* agent)
+	{
+		agent->setWorkThread(_workThreadList.front());
+		_taskAgentList.push_back(agent);
+	}
+
+	void popTaskAgent(TaskAgent* agent)
+	{
+		agent->setWorkThread(NULL);
+		_taskAgentList.remove(agent);
+	}
+
+private:
+	void _newWorkThread()
+	{
+		_workThreadList.push_back(new WorkThread);
+	}
+
+	boost::container::list<WorkThread*> _workThreadList;
+	boost::container::list<TaskAgent*> _taskAgentList;
+};
+
+
+
+
+
+
+class WorkThreadLinks : public WorkThreadBase<boost::function<void()>*>
+{
+public:
+	WorkThreadLinks(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000, size_t userMutexSize = 100000)
+		: WorkThreadBase(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser, userMutexSize)
+	{
+	}
+
+protected:
+	virtual void runFunction(boost::function<void()>** func)
+	{
+		(*(*func))();
+	}
+};
+
+class TaskAgentLinks : public TaskAgentBase<boost::function<void()>*>
+{
+};
+
+class TasksControllerLinks
+{
+public:
+	TasksControllerLinks(size_t minSizeList = 10000000, size_t normalFreeSizeList = 10000, size_t minSizeUser = 1000, size_t normalFreeSizeUser = 1000, size_t userMutexSize = 100000)
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+
+		_workThreadList.push_back(new WorkThreadLinks(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser, userMutexSize));
+		//_W = new WorkThreadLinks(minSizeList, normalFreeSizeList, minSizeUser, normalFreeSizeUser, userMutexSize);
+
+		//_workThreadList.push_back(_W);
+	}
+
+	~TasksControllerLinks()
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+
+		for (auto i : _workThreadList)
+		{
+			delete i;
+		}
+		_workThreadList.clear();
+
+	}
+
+	void newTaskAgent(TaskAgentLinks* agent)
+	{
+		boost::lock_guard<boost::mutex> l(_m);
+
+		agent->setWorkThread(_workThreadList.front());
+	}
+
+private:
+	void _newWorkThread()
+	{
+		//_workThreadList.push_back(new WorkThreadLinks);
+	}
+
+	boost::container::list<WorkThreadLinks*> _workThreadList;
+	boost::mutex _m;
+
+};
+
+
+/*
+
+template <typename T>
+class TaskAgentQueueList
+{
+public:
+TaskAgentQueueList() : list_(10000000, 10000000)
+{}
+
+void push(T val)
+{
+boost::lock_guard<boost::mutex> lock(mutex_);
+list_.pushBack(val);
+}
+
+void push(T val, size_t number)
+{
+boost::lock_guard<boost::mutex> lock(mutex_);
+for (int i = 0; i < number; ++i)
+{
+list_.pushBack(val);
+}
+}
+
+T pop()
+{
+boost::lock_guard<boost::mutex> lock(mutex_);
+if (list_.size() > 0)
+{
+T val = list_.front();
+list_.popFront();
+
+return val;
+}
+else
+{
+return NULL;
+}
+}
+
+void remove(T val)
+{
+boost::lock_guard<boost::mutex> lock(mutex_);
+//list_.popFront();
+//list_.remove(val);
+}
+
+void wait() {}
+
+private:
+FastList<T> list_;
+//boost::container::list<T> list_;
+boost::mutex mutex_;
+};
+
+
+
+
+class TaskAgent
+{
+
+public:
+~TaskAgent()
+{
+boost::lock_guard< tbb::spin_mutex > lock(spin_);
+cout << "~Tasks()" << endl;
+if (taskAgentQueueList_ != NULL)
+{
+taskAgentQueueList_->remove(this);
+}
+
+}
+
+void setTaskAgentQueueList(TaskAgentQueueList<TaskAgent*>* taskAgentQueueList)
+{
+boost::lock_guard< tbb::spin_mutex > lock(spin_);
+
+if (taskAgentQueueList_ != NULL)
+{
+taskAgentQueueList_->remove(this);
+}
+
+taskAgentQueueList_ = taskAgentQueueList;
+
+if (taskAgentQueueList_ != NULL)
+{
+taskAgentQueueList_->push(this, tasks_.size());
+}
+
+}
+
+template <typename T>
+void push(T f)
+{
+boost::lock_guard< tbb::spin_mutex > lock(spin_);
+//cout << "push" << endl;
+tasks_.push_back(f);
+
+if (taskAgentQueueList_ != NULL)
+{
+taskAgentQueueList_->push(this);
+}
+}
+
+boost::function< void() >* pop()
+{
+boost::lock_guard< tbb::spin_mutex > lock(spin_);
+
+if (tasks_.size()>0)
+{
+boost::function< void() >* task = tasks_.front();
+tasks_.pop_front();
+
+return task;
+}
+else
+{
+return NULL;
+}
+}
+
+size_t getSize()
+{
+boost::lock_guard< tbb::spin_mutex > lock(spin_);
+return tasks_.size();
+}
+
+private:
+
+tbb::spin_mutex spin_;
+boost::container::deque< boost::function< void() >* > tasks_;
+
+TaskAgentQueueList<TaskAgent*>* taskAgentQueueList_ = NULL;
+};
+
+class TaskWorkThread
+{
+public:
+TaskWorkThread() : thread_(&TaskWorkThread::work, this) {}
+
+~TaskWorkThread()
+{
+//boost::lock_guard< tbb::spin_mutex > lock(spin_);
+cout << "~Thread()" << endl;
+run_ = false;
+//mutedSemaphore_.addCount();
+thread_.join();
+}
+
+
+TaskAgentQueueList<TaskAgent*> taskAgentQueueList_;
+MutatedSemaphore mutedSemaphore_;
+
+private:
+void work()
+{
+while (run_)
+{
+mutedSemaphore_.addCount();
+mutedSemaphore_.wait();
+mutedSemaphore_.removeCount();
+
+_userMutex.lock();
+TaskAgent* TA = taskAgentQueueList_.pop();
+
+if (TA != NULL)
+{
+boost::function< void() >* task = TA->pop();
+
+if (task != NULL)
+{
+(*task)();
+}
+}
+_userMutex.unlock();
+
+}
+}
+
+
+boost::thread thread_;
+
+volatile bool run_ = true;
+FairMutex _userMutex;
+};
+
+*/
+
+int t1, t2, t3, t4, t5;
+
+int I = 0;
+int userCount = 5;
+int messageInSecond = 2000000;
+
+int EndVal = messageInSecond * userCount;
+
+void workFunc()
+{
+	I++;
+
+	if (I == EndVal)
+	{
+		t3 = clock();
+		cout << "FULL=" << t3 - t1 << ' ' << I << endl;
+	}
+}
+
+
+//TasksControllerLinks tk;
+//TasksController tk;
+
+//WorkThreadLinks wt;
+
+boost::function<void()>* MYF;
+
+void userFunc()
+{
+
+
+	//TaskAgentLinks ta;
+	    TaskAgent ta;
+
+	//ta.setWorkThread(&wt);
+	    ////////////tk.newTaskAgent(&ta);
+
+
+
+	for (int i = 0; i < messageInSecond; ++i)
+	{
+		ta.push(&workFunc);
+		//ta.push(MYF);
+	}
+
+	Sleep(4000);
+	     ///////tk.popTaskAgent(&ta);
+}
+
+
+int total = 0;
+class AAA
+{
+public:
+	AAA()
+	{
+		//cout << "AAA()" << endl;
+		//total++;
+	}
+
+	AAA(const AAA&)
+	{
+		//cout << "AAA()&" << endl;
+	}
+
+	~AAA()
+	{
+		//cout << "~AAA()" << endl;
+	}
+
+	int w = 0;
+};
+
+template<typename T>
+class All
+{
+public:
+	typedef T value_type;
+
+	All(size_t size = 1000 * 1000 * 10) : _freeBox(10000)
+	{
+		cout << "ALL" << size <<' '<< this << endl;
+
+		maxSize = size;
+
+		
+		_arr = new T[size];
+			//_alloc.allocate(size);
+		for (int i = 0; i < size; ++i)
+		{
+			_freeBox.push(&_arr[i]);
+			//_freeBox.push_front(&_arr[i]);
+		}
+		
+
+		cout << "ALL ok"<< _freeBox.size()<<' '<<this << endl;
+	}
+
+	~All()
+	{
+		cout << "~ALL" << this << endl;
+		delete[] _arr;
+	}
+	/*
+	template<class U> All(const All<U>& other)
+	{
+		cout << "!!!!!!!!!!!!ALL" << this << endl;
+		//КОРОЧЕ ТИП U И ЕСТЬ ОСНОВНОЙ
+		cout << "ALL&" << this << ' ' << &other << endl;
+
+		maxSize = other.maxSize;
+
+		_arr = new U[maxSize];
+		//_alloc.allocate(maxSize);
+		for (int i = 0; i < maxSize; ++i)
+		{
+			_freeCol.push_back(&_arr[i]);
+		}
+
+		cout << "ALL ok" << this << _freeCol.size() << endl;
+
+	}
+	*/
+
+	All(const All<T>& other) : _freeBox(10000)
+	{
+		cout << "ALL&"<< this <<' '<< &other << endl;
+
+		maxSize = other.maxSize+1;
+
+		_arr = new T[maxSize];
+		//_alloc.allocate(maxSize);
+		for (int i = 0; i < maxSize; ++i)
+		{
+			_freeBox.push(&_arr[i]);
+
+			//_freeBox.push_front(&_arr[i]);
+		}
+
+		cout << "ALL ok" << this << ' '<<_freeBox.size() << endl;
+	}
+
+	//int qwe=0;
+	T* allocate(std::size_t n)
+	{
+		//qwe++;
+		//cout << "alloc" << _freeBox.size()<< ' ' <<this << endl;
+		//Sleep(1000);
+		//if (_freeBox.empty()) { cout << 9999<< ' ' << qwe;  Sleep(1000); }
+		
+		
+		return _freeBox.pop();
+
+		/*
+		T* box = _freeBox.front();
+		_freeBox.pop_front();
+		return box;
+		*/
+	}
+
+	void deallocate(T* p, std::size_t n) 
+	{
+		//cout << "deal" << _freeBox.size() << ' ' << this << endl;
+		_freeBox.push(p);
+		//_freeBox.push_back(p);
+	}
+
+	size_t maxSize;
+
+//private:
+	T* _arr;
+	//std::allocator<T> _alloc;
+	//boost::container::deque<T*> _freeBox;
+	MyQueue<T*> _freeBox;
+};
+
+template <class T, class U>
+bool operator==(const All<T>&, const All<U>&)
+{
+	cout << "==" << endl;
+}
+
+template <class T, class U>
+bool operator!=(const All<T>&, const All<U>&)
+{
+	cout << "!=" << endl;
+}
+
+
+void main()
+{
+		//list<int, All<std::_List_node<int, void*>>> L;
+
+	int allSize = 1000*1000*100/10;
+	int tryCount = 10;
+
+
+	AAA *_arr;
+
+	int T1 = 0, T2 = 0, T3 = 0, T4 = 0, T5 = 0;
+
+
+
+	for (int q = 0; q < tryCount; ++q)
+	{
+		t1 = clock();
+
+		FastList<int> l(allSize, 0);
+	/*
+		list<int
+			, All<std::_List_node<int, void*>>
+		> L;
+
+		*/
+		t2 = clock();
+
+		for (int i = 0; i < allSize; ++i)
+		{
+			//L.push_back(i);
+			l.pushBack(i);
+		}
+
+		t3 = clock();
+
+		cout << "f=" <<l.back() << endl;
+
+		t4 = clock();
+
+		for (int i = 0; i < allSize; ++i)
+		{
+			l.popBack();
+			//L.pop_back();
+		}
+
+		t5 = clock();
+
+		T1 += t2 - t1;
+		T2 += t3 - t2;
+		T3 += t4 - t3;
+		T4 += t5 - t4;
+	}
+
+	T1 = T1 / tryCount;
+	T2 = T2 / tryCount;
+	T3 = T3 / tryCount;
+	T4 = T4 / tryCount;
+
+	cout << "w=" << T1 <<' '<< T2 << ' '<< T3 << ' '<< T4 << endl;
+	/*
+	MYF = new boost::function<void()>(&workFunc);
+	for (int i = 0; i < userCount; ++i)
+	{
+		thread(userFunc).detach();
+	}
+	*/
+
+	system("pause");
+}
+
+
+/*
+int main()
+{
+
+SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+SetConsoleOutputCP(1251);
+
+BasePool<CorteliClient> *pool = new BasePool<CorteliClient>;
+pool->runExpansionT(1);/////////////////////////////0000000000000000
+
+BaseClient* cloo = pool->newClient();
+cloo->connect("mypipe");
+
+
+Sleep(1000);
+cloo->send({ "hi",3 });
+
+system("pause");
+}
+*/
+
+
+/*
+#include "StandardClient.h"
+
+
+class CorteliClient : public corteli::network::pipe::StandardClient
+{
+public:
+CorteliClient(corteli::network::IoService* ioService, bool enabledDebugStream) : StandardClient(ioService, enabledDebugStream)
+{
+//setWaitConnectTime(1000);
+//setWaitConnectTime(1);
+//setWaitintMessageTime(1000);
+setReconnectFlag(true);
+}
+
+protected:
+
+
+//virtual void recvMessage(corteli::base::container::Buffer<char> buffer) {}
+
+
+virtual void connected()
+{
+cout<<"SEND=========================="<<send({ "Hello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOKHello YEBOK", 1068 })<<endl;
+//close();
+//cout << "connected CLOSE SEND";
+}
+
+virtual void afterReload()
+{
+connect("mypipe");
+}
+
+public:
+void runExpansion()
+{
+cout << getStatus() << ' ' << getError() <<' '<< this << endl;
+StandardClient::runExpansion();
+}
+
+};
+*/
+
+
+//volatile 
+//boost::detail::spinlock spin;
+//std::lock_guard<boost::detail::spinlock> guard(spin);
