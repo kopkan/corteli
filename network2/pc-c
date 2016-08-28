@@ -1,0 +1,164 @@
+#include "PipeCore.h"
+
+PipeCore::PipeCore(corteli::network::IoService* ioService) : _pipeStreamHandle(ioService->getIoSevice())
+{
+	_ioService = ioService;
+}
+
+PipeCore::~PipeCore()
+{
+	close();
+}
+
+int PipeCore::acceptorSetPipeHandle(HANDLE pipe)
+{
+	boost::system::error_code ec;
+	_pipeStreamHandle.assign(pipe, ec);
+	if (ec.value() == 0) { setStatus(status::CONNECTED); }
+	return ec.value();
+}
+
+void PipeCore::startRecv()
+{
+	_recvRunning = true;
+	_lastRecvMessageTime = clock();
+	_recvBuff.resize(_newRecvBuffSize);
+	_pipeStreamHandle.async_read_some(boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()),
+		boost::bind(&PipeCore::_recvHandle, this, _1, _2)
+		);
+
+	setStatus(status::RECV_STARTED);
+}
+
+void PipeCore::setRecvBuffSize(size_t size)
+{
+	if (size == 0)
+	{
+		_newRecvBuffSize = _recvBuff.getSize();
+	}
+	_newRecvBuffSize = size;
+}
+
+size_t PipeCore::getRecvBuffSize()
+{
+	return _recvBuff.getSize();
+}
+
+unsigned long long PipeCore::send(corteli::base::container::Buffer<char> buffer)
+{
+	_countSendCall++;
+	_pipeStreamHandle.async_write_some(boost::asio::buffer(buffer.getBuff(), buffer.getSize()),
+		boost::bind(&PipeCore::_sendHandle, this, _1, _2, ++_lastSentMessageId)
+		);
+
+	return _lastSentMessageId;
+}
+
+int PipeCore::close()
+{
+	setStatus(status::CLOSING);
+	boost::system::error_code ec;
+	_pipeStreamHandle.close(ec);
+
+	if (ec.value() == 0)
+	{
+		while ((_countSendCall != 0 || _recvRunning != 0) && _ioService->getStatus() == corteli::network::IoService::status::RUN)
+		{
+			Sleep(1);
+		}
+	}
+
+	setStatus(status::CLOSED);
+	return ec.value();
+}
+
+void PipeCore::reload()
+{
+	close();
+	_status = status::INITED;
+}
+
+PipeCore::status PipeCore::getStatus()
+{
+	return _status;
+}
+
+bool PipeCore::recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred)
+{
+	return ec.value();
+}
+
+void PipeCore::recvMessage(corteli::base::container::Buffer<char> buffer)
+{
+	std::cout << buffer.getBuff() << ' ' << buffer.getSize() << std::endl;
+	send({ "qwe", 4 });
+}
+bool PipeCore::recvError(const boost::system::error_code & ec)
+{
+	std::cout << "recvErr=" << ec.value() << ' ' << ec.message() << std::endl;
+	return true;
+}
+
+bool PipeCore::sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId)
+{
+	return ec.value();
+}
+
+void PipeCore::sentMessage(unsigned long long messageId)
+{
+	std::cout << "sent = " << messageId << std::endl;
+}
+
+bool PipeCore::sendError(const boost::system::error_code& ec, unsigned long long messageId)
+{
+	std::cout << messageId <<"sendError=" << ec.value() << ' ' << ec.message() << std::endl;
+	return true;
+}
+
+bool PipeCore::setStatus(status stat)
+{
+	if (stat > _status)
+	{
+		_status = stat;
+		return true;
+	}
+	return false;
+}
+
+void PipeCore::_recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred)
+{
+	if (recvContainsError(ec, bytes_transferred))//err and err not 'more data'(234)
+	{
+		if (recvError(ec))
+		{
+			_recvRunning = false;
+			setStatus(status::WAIT_CLOSE);
+			return;
+		}
+	}
+
+	_lastRecvMessageTime = clock();
+	recvMessage({ _recvBuff.getBuff(), bytes_transferred });
+	_recvBuff.resize(_newRecvBuffSize);
+
+	_pipeStreamHandle.async_read_some(
+		boost::asio::buffer(_recvBuff.getBuff(), _recvBuff.getSize()),
+		boost::bind(&PipeCore::_recvHandle, this, _1, _2)
+		);
+}
+
+void PipeCore::_sendHandle(const boost::system::error_code& ec, std::size_t bytes_transferred, unsigned long long messageId)
+{
+	if (sendContainsError(ec, bytes_transferred, messageId))
+	{
+		if (sendError(ec, messageId))
+		{
+			_countSendCall--;
+			setStatus(status::WAIT_CLOSE);
+			return;
+		}
+	}
+
+	sentMessage(messageId);
+	_countSendCall--;
+}
