@@ -1,0 +1,65 @@
+#include "D:\Develop\VisualStudio15Project\corteli\network\IoService\IoService\IoService.h"
+#include "D:\Develop\VisualStudio15Project\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+using namespace std;
+
+
+
+#include <boost/asio.hpp>
+#include <boost/bind.hpp>
+
+
+#include "D:\Develop\VisualStudio15Project\corteli\network\Pipe\Windows\Windows\Windows.h"
+
+#include <\Develop\VisualStudio15Project\corteli\Network\Pipe\Pipe\PipeCore.h>
+
+class PipeClient : public PipeCore
+{
+public:
+	PipeClient(corteli::network::IoService* io) : PipeCore(io)
+	{
+	}
+
+	int connect(std::string pipename, size_t maxConnectTime=1000)
+	{
+		DWORD err;
+		HANDLE client = corteli::network::pipe::windows::connect(pipename, maxConnectTime, err);
+		if (err) { cout << "con err"; return err; }
+		err = PipeCore::acceptorSetPipeHandle(client);
+		if (err) { return err; }
+		PipeCore::startRecv();
+		return 0;
+	}
+};
+
+int main()
+{
+
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251);
+
+
+	corteli::network::IoService _io;
+	_io.startT();
+
+
+
+	PipeClient as(&_io);
+
+	while (1)
+	{
+		//cout << "con=" << as.connect("mypipe") << endl;
+		//cout << "send=" << as.send({ "messageee--", 12 }) << endl;
+
+		as.connect("mypipe");
+		as.send({ "messageee--", 12 });
+		as.reload();
+		//Sleep(1000);
+
+	}
+	
+
+	system("pause");
+	_io.stop();
+
+	system("pause");
+}
