@@ -1,0 +1,220 @@
+#include "D:\Develop\VisualStudio15Project\corteli\network\IoService\IoService\IoService.h"
+#include "D:\Develop\VisualStudio15Project\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+
+
+
+using namespace corteli::network;
+using namespace std;
+
+
+#include "D:\Develop\VisualStudio15Project\corteli\network\Pipe\Windows\Windows\Windows.h"
+
+#include <tbb\tbb.h>
+
+//#include<\Develop\VisualStudio15Project\corteli\Parallel\DistributedTaskControl\DistributedTaskControl\TasksController.h>
+
+//corteli::parallel::TaskAgent ta;
+//corteli::parallel::TasksController tk;
+
+#include <\Develop\VisualStudio15Project\corteli\Network\Pipe\Pipe\PipeCore.h>
+
+#include <\Develop\VisualStudio15Project\corteli\Base\BaseContainers\BaseContainers\Containers.h>
+
+
+
+
+class PipeServerClient : public PipeCore
+{
+public:
+	PipeServerClient(corteli::network::IoService* io, HANDLE client) : PipeCore(io)
+	{
+		//cout << client << endl;
+		//cout << "acsp=" << PipeCore::acceptorSetPipeHandle(client) << endl;
+		PipeCore::acceptorSetPipeHandle(client);
+		PipeCore::startRecv();
+	}
+
+	void close()
+	{
+		PipeCore::close();
+	}
+
+	int _status = 0;
+};
+
+template <typename T>
+class TSQueue : public corteli::base::container::Queue<T>
+{
+public:
+	void push(T val)
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		Queue::push(val);
+	}
+
+	T pop()
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		return Queue::frontAndPop();
+	}
+
+	size_t size()
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		return Queue::size();
+	}
+
+private:
+	tbb::mutex _m;//chenge to mutexV2
+};
+
+
+
+#include <boost\container\list.hpp>
+class ClientPool
+{
+	typedef boost::container::list<PipeServerClient*>::iterator ListIter;
+
+public:
+	void start()
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		_isWork = true;
+		_workThread = boost::thread(&ClientPool::_work, this);
+	}
+
+	void stop() 
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		_isWork = false;
+		_workThread.join();
+	}
+
+	ListIter add(PipeServerClient* client)
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		_clientList.push_back(client);
+		return --_clientList.end();
+	}
+
+	void remove(ListIter iter)
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		_clientList.erase(iter);
+		if (iter == _listPozition)
+		{
+			++_listPozition;
+		}
+	}
+
+	void remAll()
+	{
+		boost::lock_guard<tbb::mutex> l(_m);
+		while (!_clientList.empty())
+		{
+			delete _clientList.front();
+			_clientList.pop_front();
+		}
+	}
+
+private:
+	void _work()
+	{
+		_listPozition = _clientList.end();
+		while (_isWork)
+		{
+			if (_m.try_lock())///////////////
+			{
+				if (_listPozition != _clientList.end())
+				{
+					PipeServerClient* psc = *_listPozition;
+					if (psc->getStatus() == PipeCore::status::WAIT_CLOSE)
+					{
+						ListIter oldPoz = _listPozition;
+						++_listPozition;
+						_clientList.erase(oldPoz);
+						delete psc;
+
+						_m.unlock();///
+						continue;
+					}
+					++_listPozition;
+				}
+				else
+				{
+					_listPozition = _clientList.begin();
+				}
+				_m.unlock();///
+			}
+			Sleep(1);
+		}
+
+	}
+
+
+	boost::container::list<PipeServerClient*> _clientList;
+	ListIter _listPozition;
+	tbb::mutex _m;
+	boost::thread _workThread;
+	volatile bool _isWork;
+};
+
+class PipeServer : public corteli::network::pipe::windows::PipeAcceptor
+{
+public:
+	~PipeServer()
+	{
+		PipeAcceptor::stop();////////////// wtf no work in destr
+		_io.stop();
+
+		_pool.remAll();
+		_pool.stop();
+	}
+
+	void start(std::string pipename)
+	{
+		_io.startT();
+		_pool.start();
+		PipeAcceptor::start(pipename);
+	}
+
+private:
+	void accepted(HANDLE client)
+	{
+		_pool.add(new PipeServerClient(&_io, client));
+	}
+
+	void acceptError(DWORD error)
+	{
+		cout << "-----ACCEPT err=" << error << endl;
+		//Sleep(10000000);
+	}
+
+	corteli::network::IoService _io;
+	ClientPool _pool;
+};
+
+
+PipeServer* pa;
+void ff()
+{
+	SetConsoleCP(1251);// установка кодовой страницы win-cp 1251 в поток ввода
+	SetConsoleOutputCP(1251);
+
+	pa->start("mypipe");
+}
+
+void main()
+{
+	//tk.newTaskAgent(&ta);
+
+
+	pa = new PipeServer;
+	boost::thread t(ff);
+
+
+	system("pause");
+
+	delete pa;
+	t.join();
+}
