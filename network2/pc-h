@@ -1,0 +1,51 @@
+#pragma once
+
+#include "D:\Develop\VisualStudio15Project\corteli\network\IoService\IoService\IoService.h"
+#include "D:\Develop\VisualStudio15Project\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+
+class PipeCore
+{
+public:
+	enum class status
+	{
+		NOT_INIT = 0, INITED = 1, CONNECT = 2, CONNECTED = 3, RECV_STARTED = 4, WAIT_CLOSE = 5, CLOSING = 6, CLOSED = 7
+	};
+
+	PipeCore(corteli::network::IoService* ioService);
+	~PipeCore();
+	int acceptorSetPipeHandle(HANDLE pipe);
+	void startRecv();
+	void setRecvBuffSize(size_t size = 0);
+	size_t getRecvBuffSize();
+	unsigned long long send(corteli::base::container::Buffer<char> buffer);
+	int close();
+	void reload();
+	status getStatus();
+
+protected:
+	virtual bool recvContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred);
+	virtual void recvMessage(corteli::base::container::Buffer<char> buffer);
+	virtual bool recvError(const boost::system::error_code & ec);
+	virtual bool sendContainsError(const boost::system::error_code & ec, std::size_t bytes_transferred, unsigned long long messageId);
+	virtual void sentMessage(unsigned long long messageId);
+	virtual bool sendError(const boost::system::error_code& ec, unsigned long long messageId);
+	bool setStatus(status stat);
+
+private:
+	void _recvHandle(const boost::system::error_code & ec, std::size_t bytes_transferred);
+	void _sendHandle(const boost::system::error_code& ec, std::size_t bytes_transferred, unsigned long long messageId);
+
+	boost::asio::windows::stream_handle _pipeStreamHandle;
+	corteli::network::IoService* _ioService;
+	corteli::base::container::Buffer<char> _recvBuff;
+	size_t _newRecvBuffSize = 10000;
+	status _status = status::NOT_INIT;
+
+	unsigned long long _lastSentMessageId = 0;
+	time_t _lastRecvMessageTime = 0;
+
+	volatile unsigned short _countSendCall = 0;
+	volatile bool _recvRunning = false;
+};
+
+#pragma comment(lib, "D:/Develop/VisualStudio15Project/corteli/network/pipe/Release/pipe.lib")
