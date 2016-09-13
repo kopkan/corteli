@@ -1,1 +1,331 @@
 
+#include <boost\asio.hpp>
+#include <thread>
+#include <iostream>
+#include <atomic>
+#include <list>
+#include <boost\thread.hpp>
+//#include "\Develop\VisualStudio15Project\corteli\Parallel\Synchronization\Synchronization\Synchronization.h"
+#include "..\..\..\..\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+
+
+
+using namespace boost::asio;
+using namespace boost::asio::ip;
+using namespace std;
+
+#define PAUSE cout<<"PRESS KEY"<<endl; getchar();
+
+//using namespace corteli::parallel::synchronization;
+using namespace corteli::base::container;
+
+
+template<typename T>
+class List
+{
+public:
+	void push(const T& val)
+	{
+		boost::lock_guard<boost::mutex> l(m_);
+		list_.push_back(val);
+	}
+
+	void remove(const T& val)
+	{
+		boost::lock_guard<boost::mutex> l(m_);
+		for (list<T>::iterator i = list_.begin(); i != list_.end(); ++i)
+		{
+			if (val == *i)
+			{
+				list_.erase(i);
+				break;
+			}
+		}
+	}
+
+	void browse(function<void(typename list<T>::iterator)> func)
+	{
+		boost::lock_guard<boost::mutex> l(m_);
+		for (list<T>::iterator i = list_.begin(); i != list_.end(); ++i)
+		{
+			func(i);
+		}
+	}
+
+	void erase_(typename list<T>::iterator iter)
+	{
+		list_.erase(iter);
+	}
+
+private:
+	list<T> list_;
+	boost::mutex m_;
+};
+
+/*
+template <typename T>
+bool operator == (const std::weak_ptr<T>& a, const std::weak_ptr<T>& b)
+{
+	try
+	{
+		return a.lock() == b.lock();
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+*/
+class Acceptor
+	: public enable_shared_from_this<Acceptor>
+{
+public:
+	Acceptor(function<void(tcp::socket)> func)
+		: acceptor_(io_)
+		, client_(io_)
+	{
+		func_ = func;
+	}
+
+
+	void listen(tcp::endpoint endpoint)
+	{
+		isWork_ = true;
+
+		acceptor_.open(boost::asio::ip::tcp::v4());
+		acceptor_.bind(endpoint);
+
+		acceptor_.listen(1000);
+		accept_();
+		io_.run();
+	}
+
+	void close()
+	{
+		isWork_ = false;
+		acceptor_.close();
+	}
+
+private:
+	void accept_()
+	{
+		if (isWork_)
+		{
+			auto self(shared_from_this());
+
+			acceptor_.async_accept(client_,
+				[this, self](boost::system::error_code ec)
+			{
+				if (!ec)
+				{
+					func_(move(client_));
+				}
+				else
+				{
+					cout << ec.value() << ' ' << ec.message() << endl;
+				}
+
+				accept_();
+			});
+		}
+	}
+
+	io_service io_;
+	tcp::acceptor acceptor_;
+	tcp::socket client_;
+	atomic<bool> isWork_ = false;
+	function<void(tcp::socket)> func_;
+};
+
+
+class Client
+	: public enable_shared_from_this<Client>
+{
+public:
+	Client(tcp::socket socket)
+		: socket_(move(socket))
+	{
+	}
+
+	~Client()
+	{
+		if (closeFunc_ != nullptr)
+		{
+			closeFunc_();
+		}
+	}
+
+	time_t getlastMessageTime()
+	{
+		return lastRecvMessageTime_;
+	}
+
+	void startRecive()
+	{
+		recvBuff_.resize(1000);
+		recive_();
+	}
+
+	int close()
+	{
+		boost::system::error_code err;
+		socket_.close(err);
+		return err.value();
+	}
+
+	void onRecive(function<void(corteli::base::container::Buffer<char>)> recvFunc)
+	{
+		recvFunc_ = recvFunc;
+	}
+
+	void onClose(function<void()> closeFunc)
+	{
+		closeFunc_ = closeFunc;
+	}
+
+	void send(corteli::base::container::Buffer<char> message)
+	{
+		auto self(shared_from_this());
+
+		socket_.async_send(buffer(message.getBuff(), message.getSize()), 
+			[this, self](boost::system::error_code ec, std::size_t length)
+		{
+			if (ec)
+			{
+				cout << "send error=" << ec.value() << ' ' << ec.message() << endl;
+				close();
+			}
+		});
+	}
+
+private:
+	void recive_()
+	{
+		lastRecvMessageTime_ = clock();
+
+		auto self(shared_from_this());
+		socket_.async_receive(boost::asio::buffer(recvBuff_.getBuff(), recvBuff_.getSize()),
+			[this, self](boost::system::error_code ec, std::size_t length)
+		{
+			if (!ec)
+			{
+				if (recvFunc_ != nullptr)
+				{
+					recvFunc_(recvBuff_);
+				}
+				recive_();
+			}
+			else
+			{
+				cout << "recive error=" << ec.value() << ' ' << ec.message() << endl;
+			}
+		});
+	}
+
+	tcp::socket socket_;
+	std::atomic<time_t> lastRecvMessageTime_ = 0;
+	Buffer<char> recvBuff_;
+
+	function<void()> closeFunc_ = nullptr;
+	function<void(corteli::base::container::Buffer<char>)> recvFunc_ = nullptr;
+};
+
+
+
+List<weak_ptr<Client>> clientList;
+shared_ptr<Acceptor> acceptor;
+
+
+void acceptFunc(tcp::socket socket)
+{
+	cout << "new client" << endl;
+	shared_ptr<Client> client = make_shared<Client>(move(socket));
+
+	weak_ptr<Client> client2 = client;
+	clientList.push(client);
+
+
+	client->onClose([client2]()
+	{
+		cout << "close" << endl;
+		//clientList.remove(client2);
+	});
+
+	client->onRecive([client2](Buffer<char> buff)
+	{
+		cout << "recv" << endl;
+		//cout << buff.getBuff() << endl;
+		client2.lock()->send({"HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 3\n\n123", 63});
+		client2.lock()->close();
+	});
+
+
+
+	client->startRecive();
+}
+
+void main()
+{
+	SetConsoleCP(1251);
+	SetConsoleOutputCP(1251);
+
+
+	acceptor = make_shared<Acceptor>(acceptFunc);
+
+
+	thread workThread([]()
+	{
+		try
+		{
+			acceptor->listen(tcp::endpoint(tcp::v4(), 80));
+		}
+		catch (exception e)
+		{
+			cout << "acceptor error=" << e.what() << endl;
+		}
+	});
+
+	
+	bool cleanerThreadWork = true;
+	thread cleanerThread([&cleanerThreadWork]()
+	{
+		while (cleanerThreadWork)
+		{
+			clientList.browse([](list<weak_ptr<Client>>::iterator iter)
+			{
+				shared_ptr<Client> cl;
+				try 
+				{
+					cl = (*iter).lock();
+					if (cl.use_count()==0)
+					{
+						return;
+					}
+				}
+				catch (...)
+				{
+					clientList.erase_(iter);
+					return;
+				}
+
+				if (clock() - cl->getlastMessageTime() > 10000)
+				{
+					cl->close();
+				}
+
+			});
+
+			Sleep(100);
+		}
+	});
+
+	PAUSE
+	acceptor->close();
+	workThread.join();
+	cleanerThreadWork = false;
+	cleanerThread.join();
+
+
+	cout << "ALL CLOSE"<< endl;
+	PAUSE
+}
