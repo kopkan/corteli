@@ -1,4 +1,3 @@
-
 #include <boost\asio.hpp>
 #include <thread>
 #include <iostream>
@@ -43,12 +42,21 @@ public:
 		}
 	}
 
-	void browse(function<void(typename list<T>::iterator)> func)
+	void browse(function<bool(T)> func)
 	{
 		boost::lock_guard<boost::mutex> l(m_);
 		for (list<T>::iterator i = list_.begin(); i != list_.end(); ++i)
 		{
-			func(i);
+			if (func(*i))
+			{
+				auto old = i;
+				i++;
+				list_.erase(old);
+				if (i == list_.end())
+				{
+					break;
+				}
+			}
 		}
 	}
 
@@ -62,31 +70,33 @@ private:
 	boost::mutex m_;
 };
 
-/*
-template <typename T>
-bool operator == (const std::weak_ptr<T>& a, const std::weak_ptr<T>& b)
-{
-	try
-	{
-		return a.lock() == b.lock();
-	}
-	catch (...)
-	{
-		return false;
-	}
-}
-*/
 class Acceptor
 	: public enable_shared_from_this<Acceptor>
 {
 public:
-	Acceptor(function<void(tcp::socket)> func)
-		: acceptor_(io_)
-		, client_(io_)
+	Acceptor(io_service& io)
+		: acceptor_(io)
+		, client_(io)
 	{
-		func_ = func;
 	}
 
+	~Acceptor()
+	{
+		if (closeFunc_ != nullptr)
+		{
+			closeFunc_();
+		}
+	}
+
+	void onAccept(function<void(tcp::socket)> func)
+	{
+		acceptFunc_ = func;
+	}
+
+	void onClose(function<void()> func)
+	{
+		closeFunc_ = func;
+	}
 
 	void listen(tcp::endpoint endpoint)
 	{
@@ -97,7 +107,6 @@ public:
 
 		acceptor_.listen(1000);
 		accept_();
-		io_.run();
 	}
 
 	void close()
@@ -118,23 +127,27 @@ private:
 			{
 				if (!ec)
 				{
-					func_(move(client_));
+					if (acceptFunc_ != nullptr)
+					{
+						acceptFunc_(move(client_));
+					}
+					accept_();
 				}
 				else
 				{
 					cout << ec.value() << ' ' << ec.message() << endl;
+					close();
 				}
-
-				accept_();
 			});
 		}
 	}
 
-	io_service io_;
+
 	tcp::acceptor acceptor_;
 	tcp::socket client_;
 	atomic<bool> isWork_ = false;
-	function<void(tcp::socket)> func_;
+	function<void(tcp::socket)> acceptFunc_ = nullptr;
+	function<void()> closeFunc_ = nullptr;
 };
 
 
@@ -142,9 +155,18 @@ class Client
 	: public enable_shared_from_this<Client>
 {
 public:
+	Client(io_service& io)
+		: socket_(io)
+	{
+	}
+
 	Client(tcp::socket socket)
 		: socket_(move(socket))
 	{
+		if (connectFunc_ != nullptr)
+		{
+			connectFunc_();
+		}
 	}
 
 	~Client()
@@ -158,6 +180,27 @@ public:
 	time_t getlastMessageTime()
 	{
 		return lastRecvMessageTime_;
+	}
+
+	void connect(tcp::endpoint endpoint)
+	{
+		auto self(shared_from_this());
+		socket_.async_connect(endpoint, 
+			[this, self](boost::system::error_code ec)
+		{
+			if (!ec)
+			{
+				if (connectFunc_ != nullptr)
+				{
+					connectFunc_();
+				}
+			}
+			else
+			{
+				cout << "connect error=" << ec.value() << ' ' << ec.message() << endl;
+				close();
+			}
+		});
 	}
 
 	void startRecive()
@@ -181,6 +224,11 @@ public:
 	void onClose(function<void()> closeFunc)
 	{
 		closeFunc_ = closeFunc;
+	}
+
+	void onConnect(function<void()> connectFunc)
+	{
+		connectFunc_ = connectFunc;
 	}
 
 	void send(corteli::base::container::Buffer<char> message)
@@ -218,6 +266,7 @@ private:
 			else
 			{
 				cout << "recive error=" << ec.value() << ' ' << ec.message() << endl;
+				close();
 			}
 		});
 	}
@@ -226,6 +275,7 @@ private:
 	std::atomic<time_t> lastRecvMessageTime_ = 0;
 	Buffer<char> recvBuff_;
 
+	function<void()> connectFunc_ = nullptr;
 	function<void()> closeFunc_ = nullptr;
 	function<void(corteli::base::container::Buffer<char>)> recvFunc_ = nullptr;
 };
@@ -233,7 +283,6 @@ private:
 
 
 List<weak_ptr<Client>> clientList;
-shared_ptr<Acceptor> acceptor;
 
 
 void acceptFunc(tcp::socket socket)
@@ -241,91 +290,95 @@ void acceptFunc(tcp::socket socket)
 	cout << "new client" << endl;
 	shared_ptr<Client> client = make_shared<Client>(move(socket));
 
-	weak_ptr<Client> client2 = client;
+	weak_ptr<Client> weak_client = client;
 	clientList.push(client);
 
 
-	client->onClose([client2]()
+	client->onClose([]()
 	{
 		cout << "close" << endl;
-		//clientList.remove(client2);
 	});
 
-	client->onRecive([client2](Buffer<char> buff)
+	client->onRecive([weak_client](Buffer<char> buff)
 	{
 		cout << "recv" << endl;
-		//cout << buff.getBuff() << endl;
-		client2.lock()->send({"HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 3\n\n123", 63});
-		client2.lock()->close();
+		weak_client.lock()->send({"HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 3\n\n123", 63});
+		weak_client.lock()->close();
 	});
-
 
 
 	client->startRecive();
 }
+
+
+
 
 void main()
 {
 	SetConsoleCP(1251);
 	SetConsoleOutputCP(1251);
 
+	shared_ptr<io_service> io = make_shared<io_service>();
 
-	acceptor = make_shared<Acceptor>(acceptFunc);
+	shared_ptr<Acceptor> acceptor = make_shared<Acceptor>(*io);
+	acceptor->onAccept(acceptFunc);
+	acceptor->listen(tcp::endpoint(tcp::v4(), 80));
 
 
-	thread workThread([]()
+	thread workThread([io]()
 	{
-		try
-		{
-			acceptor->listen(tcp::endpoint(tcp::v4(), 80));
-		}
-		catch (exception e)
-		{
-			cout << "acceptor error=" << e.what() << endl;
-		}
+		io->run();
 	});
 
-	
+
+
 	bool cleanerThreadWork = true;
 	thread cleanerThread([&cleanerThreadWork]()
 	{
 		while (cleanerThreadWork)
 		{
-			clientList.browse([](list<weak_ptr<Client>>::iterator iter)
+			clientList.browse([](weak_ptr<Client> iter)->bool
 			{
-				shared_ptr<Client> cl;
-				try 
+				shared_ptr<Client> cl = iter.lock();
+				if (cl.use_count()==0)
 				{
-					cl = (*iter).lock();
-					if (cl.use_count()==0)
-					{
-						return;
-					}
-				}
-				catch (...)
-				{
-					clientList.erase_(iter);
-					return;
+					return true;
 				}
 
 				if (clock() - cl->getlastMessageTime() > 10000)
 				{
 					cl->close();
 				}
-
+				return false;
 			});
-
 			Sleep(100);
 		}
+
+
+		clientList.browse([](weak_ptr<Client> iter)->bool
+		{
+			shared_ptr<Client> cl = iter.lock();
+			if (cl.use_count() == 0)
+			{
+				return true;
+			}
+
+			cl->close();
+			return false;
+		});
+
 	});
 
 	PAUSE
 	acceptor->close();
-	workThread.join();
+
 	cleanerThreadWork = false;
 	cleanerThread.join();
 
+	workThread.join();
 
 	cout << "ALL CLOSE"<< endl;
 	PAUSE
+
+	system("pause");
 }
