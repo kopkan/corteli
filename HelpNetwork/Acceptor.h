@@ -3,6 +3,7 @@
 #include <boost\asio.hpp>
 #include <memory>
 #include <iostream>
+#include "Endpoint.h"
 
 class Acceptor
 	: public std::enable_shared_from_this<Acceptor>
@@ -12,7 +13,7 @@ public:
 	~Acceptor();
 	void onAccept(std::function<void(boost::asio::ip::tcp::socket)> func);
 	void onClose(std::function<void()> func);
-	void listen(boost::asio::ip::tcp::endpoint endpoint);
+	void listen(Endpoint endpoint);
 	void close();
 
 private:
