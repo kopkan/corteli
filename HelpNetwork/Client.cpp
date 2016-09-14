@@ -33,10 +33,13 @@ time_t Client::getlastMessageTime()
 	return lastRecvMessageTime_;
 }
 
-void Client::connect(tcp::endpoint endpoint)
+void Client::connect(Endpoint endpoint)
 {
 	auto self(shared_from_this());
-	socket_.async_connect(endpoint,
+
+
+
+	socket_.async_connect(endpoint.toBoostEndpoint(),
 		[this, self](boost::system::error_code ec)
 	{
 		if (!ec)
