@@ -5,6 +5,7 @@
 #include <iostream>
 #include <atomic>
 #include "..\..\..\..\corteli\Base\BaseContainers\BaseContainers\Buffer.h"
+#include "Endpoint.h"
 
 class Client
 	: public std::enable_shared_from_this<Client>
@@ -14,7 +15,7 @@ public:
 	Client(boost::asio::ip::tcp::socket socket);
 	~Client();
 	time_t getlastMessageTime();
-	void connect(boost::asio::ip::tcp::endpoint endpoint);
+	void connect(Endpoint endpoint);
 	void startRecive();
 	int close();
 	void onRecive(std::function<void(corteli::base::container::Buffer<char>)> recvFunc);
@@ -33,4 +34,3 @@ private:
 	std::function<void()> closeFunc_ = nullptr;
 	std::function<void(corteli::base::container::Buffer<char>)> recvFunc_ = nullptr;
 };
-
