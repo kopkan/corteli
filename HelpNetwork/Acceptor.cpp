@@ -28,10 +28,10 @@ void Acceptor::onClose(function<void()> func)
 	closeFunc_ = func;
 }
 
-void Acceptor::listen(tcp::endpoint endpoint)
+void Acceptor::listen(Endpoint endpoint)
 {
 	acceptor_.open(boost::asio::ip::tcp::v4());
-	acceptor_.bind(endpoint);
+	acceptor_.bind(endpoint.toBoostEndpoint());
 
 	acceptor_.listen(1000);
 	accept_();
