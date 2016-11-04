@@ -1,3 +1,10 @@
+#define USING_STATIC_LIBICONV
+#include <stdio.h>
+#include <iconv/iconv.h>
+#include <errno.h>
+
+#pragma comment(lib, "iconv//libiconvStatic")
+
 class CharsetConverter
 {
 public:
