@@ -16,6 +16,11 @@ using namespace std;
 
 
 
+
+#pragma warning(disable:4996)
+
+
+
 streampos getIFstreamSize(ifstream& ifstream)
 {
 	streampos fpoz = ifstream.tellg();
@@ -111,6 +116,7 @@ RSA* getRSA(string key, bool isPublicKey)
 bool encrypt(string keyData, bool isPublicKey, string inData, string& outData)
 {
 	RSA* Key = getRSA(keyData, isPublicKey);
+	if (Key == NULL) { return false; }
 	int key_size = RSA_size(Key);
 
 	unsigned char ctext[5000];
@@ -143,6 +149,7 @@ bool encrypt(string keyData, bool isPublicKey, string inData, string& outData)
 bool decrypt(string keyData, bool isPublicKey, string inData, string& outData)
 {
 	RSA* Key = getRSA(keyData, isPublicKey);
+	if (Key == NULL) { return false; }
 	int key_size = RSA_size(Key);
 
 	unsigned char ptext[1000];
@@ -186,17 +193,58 @@ bool privateDecrypt(string keyData, string inData, string& outData)
 	return decrypt(keyData, false, inData, outData);
 }
 
+#include <json/json.hpp>
+using json = nlohmann::json;
+
 
 void main()
 {
 	setlocale(LC_ALL, "Russian");
 
 
+	vector<byte> h = { 1,2,3 };
+	vector<byte> version = { 0,0,0,1 };
+
+	json q;
+	q["controlValue"] = "Little Pink Pig";
+	q["manifestHash"] = h;
+	q["archivePass"] = "";
+	q["version"] = version;
+
+	writeFile(L"e://preJson.json", q.dump());
+
+	try {
+		string jsonBuff;
+		readFile(L"e://preJson.json", jsonBuff);
+		jsonBuff.push_back('\0');
+
+		json j;
+		j = j.parse(jsonBuff.data());
+
+
+		const char controlValue[] = "Little Pink Pig";
+		if (j["controlValue"].get<string>() != controlValue)
+		{
+			//return false;
+		}
+
+		vector<byte> manifestHash = j["manifestHash"].get<vector<byte>>();
+		string archivePass = j["archivePass"].get<string>();
+
+		vector<byte> version = j["version"].get<vector<byte>>();
+	}
+	catch (std::exception& e)
+	{
+		cout << "err=" << e.what() << endl;
+	}
+
+
+
+
+	system("pause");
+
 	string pubKeyData;
 	string privKeyData;
-
-
-	int t1 = clock();
 	{
 		cout << GenKeys(2048, pubKeyData, privKeyData) << endl;
 
@@ -207,8 +255,6 @@ void main()
 	}
 
 
-	int t2 = clock();
-
 	string codeData;
 	{
 		string Data;
@@ -217,18 +263,12 @@ void main()
 		writeFile(L"e://123.rar.rsa", codeData);
 	}
 
-	int t3 = clock();
-
 
 	{
 		string myData;
 		cout << publicDecrypt(pubKeyData, codeData, myData) << endl;
 		writeFile(L"e://123.rar.rar", myData);
 	}
-
-	int t4 = clock();
-
-	cout << t2 - t1 << ' ' << t3 - t2 << ' ' << t4 - t3 << endl;
 
 	system("pause");
 }
