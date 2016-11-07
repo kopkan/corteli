@@ -1,3 +1,7 @@
+#include "include\\zlib.h"
+#pragma comment(lib, "lib\\zdll")
+#include <fstream>
+
 
 #include <vector>
 #include <assert.h>
